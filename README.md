@@ -1,4 +1,4 @@
-# Short
+# Under
 
 A very simple HTTP server framework.  This serves as a small layer
 between your application code and Hyper.
@@ -9,11 +9,11 @@ you encounter any, feel free to create an issue.
 
 ## Setting Up
 
-The simplest way to set up a server is by using `short::Stack`:
+The simplest way to set up a server is by using `under::Stack`:
 
 ```rust
-let mut stack = short::Stack::new();
-stack.at("/").get(short::endpoint::static_endpoint(short::Response::empty_204));
+let mut stack = under::Stack::new();
+stack.at("/").get(under::endpoint::static_endpoint(under::Response::empty_204));
 stack.listen("localhost:8080").await.unwrap();
 ```
 
@@ -65,18 +65,18 @@ stack.at("/users/{id}").all(users::all);
 
 When declaring a path, it must route to an endpoint - the argument
 passed into the verb function, e.g. `get(users::show)`.  The value
-passed _must_ implement `short::Endpoint<D>`, where `D` is the data
+passed _must_ implement `under::Endpoint<D>`, where `D` is the data
 type passed when constructing the server (from
-`short::Stack::with_state(data: D)`; for `short::Stack::new()`, the
-type is `()`).  `short::Endpoint<D>` is implemented for
-`fn(short::Request<D>) -> impl Future<Output = Result<short::Response, anyhow::Error> + Send + Sync + 'static`;
+`under::Stack::with_state(data: D)`; for `under::Stack::new()`, the
+type is `()`).  `under::Endpoint<D>` is implemented for
+`fn(under::Request<D>) -> impl Future<Output = Result<under::Response, anyhow::Error> + Send + Sync + 'static`;
 so, declaring an endpoint can be as simple as:
 
 ```rust
-async fn index(request: short::Request<()>) -> Result<short::Response, anyhow::Error> {
+async fn index(request: under::Request<()>) -> Result<under::Response, anyhow::Error> {
     todo!()
 }
 ```
 
 and used as above.  This library also comes with a few built-in
-endpoints in `short::endpoint`.
+endpoints in `under::endpoint`.
