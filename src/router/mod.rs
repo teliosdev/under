@@ -1,5 +1,8 @@
+mod route;
+
+pub(crate) use self::route::Route;
+pub use self::route::RoutePath;
 use crate::endpoint::Endpoint;
-use std::fmt::Write;
 use std::sync::Arc;
 
 /// A router.  This contains a set of paths, and the [`Endpoint`]s they point to.  This expects
@@ -30,16 +33,18 @@ use std::sync::Arc;
 /// of the input path.  After the `RegexSet` match, we again match against the route to collect the
 /// pattern matchers (e.g. `{some}` and `{value:path}`), before returning both.  This information is
 /// included as a part of the request.
-pub struct Router<D> {
+pub struct Router {
     regex: regex::RegexSet,
-    pub(crate) routes: Vec<Arc<Route<D>>>,
+    pub(crate) routes: Vec<Arc<Route>>,
+    pub(crate) default: Option<Arc<Route>>,
 }
 
-impl<D> Router<D> {
+impl Router {
     pub fn new() -> Self {
         Router {
             regex: regex::RegexSet::new::<Option<&str>, _>(None).unwrap(),
             routes: vec![],
+            default: None,
         }
     }
 
@@ -50,154 +55,41 @@ impl<D> Router<D> {
         self.regex = set;
     }
 
-    pub fn at<P: AsRef<str>>(&mut self, prefix: P) -> RoutePath<'_, D> {
+    pub fn at<P: AsRef<str>>(&mut self, prefix: P) -> RoutePath<'_> {
         RoutePath {
             prefix: join_paths("", prefix.as_ref()),
             builder: &mut self.routes,
         }
     }
 
-    pub(crate) fn lookup(&self, path: &str, method: &hyper::Method) -> Option<Arc<Route<D>>> {
+    pub fn default<E: Endpoint>(&mut self, endpoint: E) {
+        self.default = Some(Arc::new(Route {
+            path: "/".to_owned(),
+            regex: regex::Regex::new("^.*$").unwrap(),
+            method: None,
+            endpoint: Box::pin(endpoint),
+        }));
+    }
+
+    pub(crate) fn lookup(&self, path: &str, method: &http::Method) -> Option<Arc<Route>> {
         self.regex
             .matches(path)
             .into_iter()
             .map(|i| &self.routes[i])
             .filter(|r| r.method.is_none() || r.method.as_ref() == Some(method))
             .next_back()
+            .or(self.default.as_ref())
             .cloned()
     }
 }
 
-impl<D> std::fmt::Debug for Router<D> {
+impl std::fmt::Debug for Router {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Router")
             .field("regex", &self.regex)
             .field("routes", &self.routes)
             .finish()
     }
-}
-
-pub(crate) struct Route<D> {
-    pub(crate) path: String,
-    pub(crate) regex: regex::Regex,
-    pub(crate) method: Option<hyper::Method>,
-    pub(crate) endpoint: Box<dyn Endpoint<D>>,
-}
-
-impl<D> std::fmt::Debug for Route<D> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Route")
-            .field("path", &self.path)
-            .field("method", &self.method)
-            .finish()
-    }
-}
-
-/// A description of a path in the router.  This is generated when you call [`Stack::at`], and it
-/// contains the passed prefix from that function.  Here, you can specify the behavior to perform
-/// at that prefix - the [`Endpoint`]s to perform on each method of that Path.
-///
-/// [`Stack::at`]: struct.Stack.html#method.at
-/// [`Endpoint`]: trait.Endpoint.html
-pub struct RoutePath<'a, D> {
-    prefix: String,
-    builder: &'a mut Vec<Arc<Route<D>>>,
-}
-
-macro_rules! method {
-    ($($(#[$m:meta])* $v:vis fn $n:ident = $meth:expr;)+) => {
-        $(
-            $(#[$m])* $v fn $n<E: Endpoint<D>>(&mut self, endpoint: E) -> &mut Self {
-                self.method($meth, endpoint)
-            }
-        )+
-    };
-}
-
-impl<'a, D> RoutePath<'a, D> {
-    /// This appends to the prefix, creating a new [`RoutePath`] from the current one and the given
-    /// supplemental prefix.  This assumes that the prefix is never terminated with a forward
-    /// slash, but always prefixed with one.
-    ///
-    /// # Example
-    /// ```rust
-    /// # fn main() {
-    /// # use short::{Stack, Response, endpoint::static_endpoint};
-    /// # let mut router = Stack::new();
-    /// # let user_index = static_endpoint(Response::empty_204);
-    /// # let user_show = static_endpoint(Response::empty_204);
-    /// # let user_update = static_endpoint(Response::empty_204);
-    /// # let user_destroy = static_endpoint(Response::empty_204);
-    /// let mut base = router.at("/user");
-    /// base.get(user_index);
-    /// base.at("/{id}")
-    ///     .get(user_show)
-    ///     .post(user_update)
-    ///     .delete(user_destroy);
-    /// # router.compile();
-    /// # }
-    /// ```
-    ///
-    /// [`RoutePath`]: struct.RoutePath.html
-    pub fn at<P: AsRef<str>>(&mut self, path: P) -> RoutePath<'_, D> {
-        RoutePath {
-            prefix: join_paths(&self.prefix, path.as_ref()),
-            builder: self.builder,
-        }
-    }
-
-    pub fn all<E: Endpoint<D>>(&mut self, endpoint: E) -> &mut Self {
-        self.builder.push(Arc::new(Route {
-            path: self.prefix.clone(),
-            regex: regex::Regex::new(&regex_pattern(&self.prefix)).unwrap(),
-            method: None,
-            endpoint: Box::new(endpoint),
-        }));
-        self
-    }
-
-    pub fn method<E: Endpoint<D>>(&mut self, method: hyper::Method, endpoint: E) -> &mut Self {
-        self.builder.push(Arc::new(Route {
-            path: self.prefix.clone(),
-            regex: regex::Regex::new(&regex_pattern(&self.prefix)).unwrap(),
-            method: Some(method),
-            endpoint: Box::new(endpoint),
-        }));
-        self
-    }
-
-    method![
-        /// Creates a GET endpoint at the current prefix.
-        ///
-        /// # Example
-        /// ```rust
-        /// # #[tokio::main]
-        /// # async fn main() {
-        /// # use short::endpoint::static_endpoint;
-        /// # let mut router = short::Stack::new();
-        /// # let endpoint = static_endpoint(short::Response::empty_204);
-        /// router.at("/user").get(endpoint);
-        /// router.compile();
-        /// let response = router.response_for("/user", &hyper::Method::GET).await.unwrap();
-        /// # assert_eq!(response.unwrap().status(), hyper::StatusCode::NO_CONTENT);
-        /// # }
-        /// ```
-        pub fn get = hyper::Method::GET;
-        /// TODO.
-        pub fn post = hyper::Method::POST;
-        /// TODO.
-        pub fn put = hyper::Method::PUT;
-        /// TODO.
-        pub fn delete = hyper::Method::DELETE;
-        /// TODO.
-        pub fn head = hyper::Method::HEAD;
-        /// TODO.
-        pub fn trace = hyper::Method::TRACE;
-        /// TODO.
-        pub fn connect = hyper::Method::CONNECT;
-        /// TODO.
-        pub fn patch = hyper::Method::PATCH;
-    ];
 }
 
 // Base *MUST* be either `""` or start with `"/"`.
@@ -222,68 +114,18 @@ fn join_paths(base: &str, extend: &str) -> String {
     buffer
 }
 
-lazy_static::lazy_static! {
-    static ref PATTERN: regex::Regex = regex::Regex::new("\\{(?P<name>[a-zA-Z]+)?(?::(?P<pattern>[a-zA-Z]+))?\\}").unwrap();
-}
-
-fn regex_pattern(path: &str) -> String {
-    let mut start = 0;
-    let mut buffer = String::with_capacity(path.len() + 2);
-    buffer.push('^');
-
-    for matches in PATTERN.find_iter(path) {
-        buffer.push_str(&regex::escape(&path[start..matches.start()]));
-        start = matches.end();
-        let capture = PATTERN.captures(matches.as_str()).unwrap();
-        let name = capture.name("name").map(|m| m.as_str());
-        let pattern = capture.name("pattern").map(|m| m.as_str());
-        push_pattern(&mut buffer, name, pattern);
-    }
-
-    buffer.push_str(&regex::escape(&path[start..]));
-
-    buffer.push('$');
-    buffer
-}
-
-static UUID_PATTERN: &str =
-    "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[89aAbB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}";
-
-fn push_pattern(buffer: &mut String, name: Option<&str>, pattern: Option<&str>) {
-    struct NamePattern<'n>(Option<&'n str>);
-    impl std::fmt::Display for NamePattern<'_> {
-        fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            if let Some(n) = self.0 {
-                write!(fmt, "?P<{}>", n)
-            } else {
-                Ok(())
-            }
-        }
-    }
-    let name = NamePattern(name);
-    match pattern {
-        Some("oext") => write!(buffer, "(?:\\.({}[^/]+))?", name),
-        Some("int") => write!(buffer, "({}[+-]?\\d+)", name),
-        Some("uint") => write!(buffer, "({}\\d+)", name),
-        Some("path") => write!(buffer, "({}.+)", name),
-        Some("uuid") => write!(buffer, "({}{})", name, UUID_PATTERN),
-        Some("str") | Some("s") | Some("string") | None => write!(buffer, "({}[^/]+)", name),
-        Some(v) => panic!("unknown path pattern type {:?}", v),
-    }
-    .unwrap();
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::request::Request;
     use crate::response::Response;
+    use crate::ShortError;
 
-    async fn simple_endpoint(_: Request<()>) -> Result<Response, anyhow::Error> {
+    async fn simple_endpoint(_: Request) -> Result<Response, ShortError> {
         unimplemented!()
     }
 
-    fn simple_router() -> Router<()> {
+    fn simple_router() -> Router {
         let mut router = Router::new();
         router.at("/").get(simple_endpoint);
         router.at("/alpha").get(simple_endpoint);
@@ -311,7 +153,7 @@ mod test {
     fn test_basic_match() {
         let router = simple_router();
         dbg!(&router);
-        let result = router.lookup("/", &hyper::Method::GET);
+        let result = router.lookup("/", &http::Method::GET);
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!("/", &result.path);
@@ -320,7 +162,7 @@ mod test {
     #[test]
     fn test_simple_match() {
         let router = simple_router();
-        let result = router.lookup("/beta/4444", &hyper::Method::GET);
+        let result = router.lookup("/beta/4444", &http::Method::GET);
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!("/beta/{id}", &result.path);
@@ -329,7 +171,7 @@ mod test {
     #[test]
     fn test_multi_match() {
         let router = simple_router();
-        let result = router.lookup("/gamma/a/b/c", &hyper::Method::GET);
+        let result = router.lookup("/gamma/a/b/c", &http::Method::GET);
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!("/gamma/{all:path}", &result.path);
@@ -338,14 +180,14 @@ mod test {
     #[test]
     fn test_missing_match() {
         let router = simple_router();
-        let result = router.lookup("/omega/aaa", &hyper::Method::GET);
+        let result = router.lookup("/omega/aaa", &http::Method::GET);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_correct_method() {
         let router = simple_router();
-        let result = router.lookup("/alpha", &hyper::Method::POST);
+        let result = router.lookup("/alpha", &http::Method::POST);
         assert!(result.is_none());
     }
 }

@@ -1,70 +1,73 @@
+mod sync;
+
 use crate::request::Request;
-use crate::response::Response;
+use crate::response::IntoResponse;
+use crate::Response;
 use std::future::Future;
 use std::pin::Pin;
 
-mod dir;
-mod sync;
-
-pub trait Endpoint<D>: Send + Sync + 'static {
+#[async_trait]
+#[doc(notable_trait)]
+/// An HTTP request handler.
+///
+/// This is automatically implemented for
+/// `Fn(Request) -> impl Future<Output = impl IntoResponse>` types, but it may
+/// be useful to implement this yourself.  All this is meant to do is be a
+/// fallible function from a [`Request`] into a [`Response`].
+///
+/// [`Request`]: ../Request.struct.html
+/// [`Response`]: ../Response.struct.html
+pub trait Endpoint: Send + Sync + 'static {
     #[must_use]
-    fn apply<'s, 'a>(
-        &'s self,
-        request: Request<D>,
-    ) -> Pin<Box<dyn Future<Output = Result<Response, anyhow::Error>> + Send + 'a>>
-    where
-        's: 'a,
-        Self: 'a;
+    /// Transforms the request into the response.  However, a request may fail,
+    /// and such a failure can be handled by down the stack.
+    async fn apply(self: Pin<&Self>, request: Request) -> Result<Response, anyhow::Error>;
 }
 
-impl<D, F, Fut, Er> Endpoint<D> for F
+#[async_trait]
+impl<Res, F, Fut> Endpoint for F
 where
-    D: Send + Sync + 'static,
-    F: Fn(Request<D>) -> Fut + Sync + Send + 'static,
-    Fut: Future<Output = Result<Response, Er>> + Send + 'static,
-    Er: Into<anyhow::Error>,
+    F: Fn(Request) -> Fut + Sync + Send + 'static,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoResponse + Send + 'static,
 {
-    fn apply<'s, 'a>(
-        &'s self,
-        request: Request<D>,
-    ) -> Pin<Box<dyn Future<Output = Result<Response, anyhow::Error>> + Send + 'a>>
-    where
-        's: 'a,
-        Self: 'a,
-    {
-        Box::pin(async move { self(request).await.map_err(|e| e.into()) })
+    async fn apply(self: Pin<&Self>, request: Request) -> Result<Response, anyhow::Error> {
+        self(request).await.into_response()
     }
 }
 
-pub fn sync_endpoint<D, F, Er>(func: F) -> impl Endpoint<D>
+/// Creates an endpoint that synchronously generates a response.
+///
+/// This does not spawn a blocking task; so any endpoint that uses this should
+/// not block the task in its processing.  This is useful for endpoints that
+/// quickly generate a response, or otherwise do not use futures.
+///
+/// ```rust
+/// # #[tokio::main] fn main() -> Result<(), anyhow::Error> {
+/// # let http = under::http();
+/// http.at("/404").get(under::endpoint::sync(|_| {
+///     under::Response::json(serde_json!({ "error": 404 }))
+/// }));
+/// # }
+/// ```
+pub fn sync<F, Res>(func: F) -> impl Endpoint
 where
-    D: Send + Sync + 'static,
-    F: for<'a> Fn(Request<D>) -> Result<Response, Er> + Send + Sync + 'static,
-    Er: Into<anyhow::Error>,
+    F: Fn(Request) -> Res + Send + Sync + 'static,
+    Res: IntoResponse + Send + 'static,
 {
     self::sync::SyncEndpoint(func)
 }
 
-pub fn ok_sync_endpoint<D, F>(func: F) -> impl Endpoint<D>
+pub fn r#static<F>(func: F) -> impl Endpoint
 where
-    D: Send + Sync + 'static,
-    F: for<'a> Fn(Request<D>) -> Response + Send + Sync + 'static,
-{
-    sync_endpoint::<D, _, anyhow::Error>(move |r| Ok(func(r)))
-}
-
-pub fn static_endpoint<D, F>(func: F) -> impl Endpoint<D>
-where
-    D: Send + Sync + 'static,
     F: Fn() -> Response + Send + Sync + 'static,
 {
-    sync_endpoint::<D, _, anyhow::Error>(move |_| Ok(func()))
+    sync::<_, Result<Response, std::convert::Infallible>>(move |_| Ok(func()))
 }
 
-pub fn dir<P, D>(path: P) -> impl Endpoint<D>
-where
-    D: Send + Sync + 'static,
-    P: Into<std::path::PathBuf>,
-{
-    self::dir::DirEndpoint::new(path)
-}
+// // pub fn dir<P>(path: P) -> impl Endpoint
+// // where
+// //     P: Into<std::path::PathBuf>,
+// // {
+// //     self::dir::DirEndpoint::new(path)
+// // }

@@ -4,9 +4,7 @@ use anyhow::Error;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::AsyncRead;
-use tokio::stream::Stream;
+use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Clone)]
 pub(super) struct DirEndpoint {
@@ -19,13 +17,10 @@ impl DirEndpoint {
     }
 }
 
-impl<D> Endpoint<D> for DirEndpoint
-where
-    D: Send + Sync + 'static,
-{
+impl Endpoint for DirEndpoint {
     fn apply<'s, 'a>(
         &'s self,
-        request: Request<D>,
+        request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + 'a>>
     where
         's: 'a,
@@ -103,36 +98,7 @@ fn load_file(file: tokio::fs::File, path: &Path) -> Result<Response, Error> {
     hyper::Response::builder()
         .header(http::header::CONTENT_TYPE, mime_type.to_string())
         .status(hyper::StatusCode::OK)
-        .body(hyper::Body::wrap_stream(StreamRead::new(file)))
+        .body(hyper::Body::wrap_stream(ReaderStream::new(file)))
         .map(Response::from)
         .map_err(Error::from)
-}
-
-pub struct StreamRead {
-    file: tokio::fs::File,
-    buffer: Box<[u8; 4096]>,
-}
-
-impl StreamRead {
-    /// Create a new stream from the given file.
-    pub fn new(file: tokio::fs::File) -> Self {
-        StreamRead {
-            file,
-            buffer: Box::new([0; 4096]),
-        }
-    }
-}
-
-impl Stream for StreamRead {
-    type Item = Result<bytes::Bytes, std::io::Error>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let StreamRead { file, buffer } = &mut *self;
-        match Pin::new(file).poll_read(cx, &mut buffer[..]) {
-            Poll::Ready(Ok(0)) => Poll::Ready(None),
-            Poll::Ready(Ok(size)) => Poll::Ready(Some(Ok(buffer[..size].to_owned().into()))),
-            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
-            Poll::Pending => Poll::Pending,
-        }
-    }
 }
