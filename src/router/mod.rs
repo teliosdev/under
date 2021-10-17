@@ -1,16 +1,25 @@
+mod pattern;
 mod route;
+mod service;
 
+pub(crate) use self::pattern::Pattern;
+pub use self::route::Path;
 pub(crate) use self::route::Route;
-pub use self::route::RoutePath;
 use crate::endpoint::Endpoint;
+use crate::middleware::Middleware;
+use crate::{Request, Response};
+use std::pin::Pin;
 use std::sync::Arc;
 
-/// A router.  This contains a set of paths, and the [`Endpoint`]s they point to.  This expects
-/// a root, `/`, and all paths placed in this router are expected to be based off of this root.
-/// Ultimately, this is an array of `Route`s, where each `Route` is a path, a method, and an
-/// endpoint.  If the incoming request matches on the path and method, then the last route inserted
-/// that matches will have its endpoint run.  So, assuming that you have the following routes
-/// defined:
+/// An HTTP router.
+///
+/// This contains a set of paths, and the [`Endpoint`]s they point
+/// to.  This expects a root, `/`, and all paths placed in this router are
+/// expected to be based off of this root.  Ultimately, this is an array of
+/// routes, where each route is a path, a method, and an endpoint.  If
+/// the incoming request matches on the path and method, then the last route
+/// inserted that matches will have its endpoint run.  So, assuming that you
+/// have the following routes defined:
 ///
 /// ```text
 /// // ...
@@ -19,56 +28,110 @@ use std::sync::Arc;
 /// // ...
 /// ```
 ///
-/// Even though the former route can match `/user/@me`, the latter route will always be picked
-/// instead, as it is defined _after_ the former.
+/// Even though the former route can match `/user/@me`, the latter route will
+/// always be picked instead, as it is defined _after_ the former.
 ///
 /// # Internals
 ///
-/// Internally, the router uses a regular expression matcher to convert the given paths (e.g.
-/// `/user/{id}`) into a regular expression (`^/user/(?P<id>[^/]+)`).  It does this
-/// segment-by-segment in the path, and is rather strict about what the names of a placeholder
-/// component can be (only alphabetical).  This is compiled into a `RegexSet`, which, when run
-/// against a given path, will return a list of routes that the path matches.  Because we don't
-/// have to fool around with matching every route, the timing is `O(n)`, with `n` being the length
-/// of the input path.  After the `RegexSet` match, we again match against the route to collect the
-/// pattern matchers (e.g. `{some}` and `{value:path}`), before returning both.  This information is
-/// included as a part of the request.
+/// Internally, the router uses a regular expression matcher to convert the
+/// given paths (e.g. `/user/{id}`) into a regular expression
+/// (`^/user/(?P<id>[^/]+)`).  It does this segment-by-segment in the path, and
+/// is rather strict about what the names of a placeholder component can be
+/// (only alphabetical).  This is compiled into a `RegexSet`, which, when run
+/// against a given path, will return a list of routes that the path matches.
+/// Because we don't have to fool around with matching every route, the timing
+/// is `O(n)`, with `n` being the length of the input path.  After the
+/// `RegexSet` match, we again match against the route to collect the pattern
+/// matchers (e.g. `{some}` and `{value:path}`), before returning both.  This
+/// information is included as a part of the request.
 pub struct Router {
     regex: regex::RegexSet,
-    pub(crate) routes: Vec<Arc<Route>>,
-    pub(crate) default: Option<Arc<Route>>,
+    routes: Vec<Arc<Route>>,
+    middleware: Vec<Pin<Box<dyn Middleware>>>,
+    fallback: Option<Pin<Box<dyn Endpoint>>>,
+}
+
+impl Default for Router {
+    fn default() -> Self {
+        Router {
+            regex: regex::RegexSet::empty(),
+            middleware: vec![],
+            routes: vec![],
+            fallback: None,
+        }
+    }
 }
 
 impl Router {
-    pub fn new() -> Self {
-        Router {
-            regex: regex::RegexSet::new::<Option<&str>, _>(None).unwrap(),
-            routes: vec![],
-            default: None,
-        }
-    }
-
-    #[doc(hidden)]
-    pub fn compile(&mut self) {
-        let patterns = self.routes.iter().map(|route| route.regex.as_str());
+    /// Prepares the router, constructing the routes.
+    ///
+    /// This is automatically called when listening using [`Router::listen`].
+    /// However, you may want to use the router before that point for e.g.
+    /// testing, and so this must be called before any requests are routed
+    /// (or, if any routes are changed).  If this is not called, you will
+    /// receive only 500 errors.
+    pub fn prepare(&mut self) {
+        let patterns = self
+            .routes
+            .iter()
+            .map(|route| route.pattern.regex().as_str());
         let set = regex::RegexSet::new(patterns).unwrap();
         self.regex = set;
     }
 
-    pub fn at<P: AsRef<str>>(&mut self, prefix: P) -> RoutePath<'_> {
-        RoutePath {
-            prefix: join_paths("", prefix.as_ref()),
-            builder: &mut self.routes,
-        }
+    pub(crate) fn routes(&self) -> &[Arc<Route>] {
+        &self.routes[..]
     }
 
-    pub fn default<E: Endpoint>(&mut self, endpoint: E) {
-        self.default = Some(Arc::new(Route {
-            path: "/".to_owned(),
-            regex: regex::Regex::new("^.*$").unwrap(),
-            method: None,
-            endpoint: Box::pin(endpoint),
-        }));
+    /// Creates a [`Path`] at the provided prefix.  See [`Path::at`] for more.
+    pub fn at<P: AsRef<str>>(&mut self, prefix: P) -> Path<'_> {
+        Path::new(join_paths("", prefix.as_ref()), &mut self.routes)
+    }
+
+    /// Appends middleware to the router.  Each middleware is executed in the
+    /// order that it is appended to the router (i.e., the first middleware
+    /// inserted executes first).
+    ///
+    /// # Examples
+    /// ```rust
+    /// let mut http = under::http();
+    /// http.with(under::middleware::TraceMiddleware::new())
+    ///     .with(under::middleware::StateMiddleware::new(123u32));
+    /// ```
+    pub fn with<M: Middleware>(&mut self, middleware: M) -> &mut Self {
+        self.middleware.push(Box::pin(middleware));
+        self
+    }
+
+    /// Sets a fallback endpoint.  If there exists no other endpoint in the
+    /// router that could potentially respond to the request, it will first
+    /// attempt to execute this fallback endpoint, before instead returning
+    /// an empty 500 error.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+    /// let mut http = under::http();
+    /// http.at("/foo").get(under::endpoints::simple(Response::empty_204));
+    /// http.fallback(under::endpoints::simple(Response::empty_404));
+    /// http.prepare();
+    /// let response = http.handle(Request::get("/foo")?).await?;
+    /// assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+    /// let response = http.handle(Request::get("/bar")?).await?;
+    /// assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
+    /// # Ok(())
+    /// # }
+    pub fn fallback<E: Endpoint>(&mut self, endpoint: E) -> &mut Self {
+        self.fallback = Some(Box::pin(endpoint));
+        self
+    }
+
+    /// Handles a one-off request to the router.  This is equivalent to pinning
+    /// the router (with [`Pin::new`], since the Router is `Unpin`), before
+    /// calling [`crate::Endpoint::apply`].
+    pub async fn handle(&self, request: Request) -> Result<Response, anyhow::Error> {
+        Pin::new(self).apply(request).await
     }
 
     pub(crate) fn lookup(&self, path: &str, method: &http::Method) -> Option<Arc<Route>> {
@@ -76,10 +139,41 @@ impl Router {
             .matches(path)
             .into_iter()
             .map(|i| &self.routes[i])
-            .filter(|r| r.method.is_none() || r.method.as_ref() == Some(method))
+            .filter(|r| r.matches(method))
             .next_back()
-            .or(self.default.as_ref())
             .cloned()
+    }
+
+    fn fallback_endpoint(&self) -> Option<Pin<&dyn Endpoint>> {
+        self.fallback.as_ref().map(Pin::as_ref)
+    }
+}
+
+#[async_trait]
+impl crate::Endpoint for Router {
+    async fn apply(self: Pin<&Self>, mut request: Request) -> Result<Response, anyhow::Error> {
+        let route = self.lookup(request.uri().path(), request.method());
+        if let Some(route) = route.clone() {
+            // This should most always be a `Some`, because the route's path
+            // would 100% match the uri's path.
+            if let Some(fragment) =
+                crate::request::fragment::Fragment::new(request.uri().path(), &*route)
+            {
+                request.extensions_mut().insert(fragment);
+            }
+            request.extensions_mut().insert(route);
+        }
+
+        let endpoint = {
+            let route_endpoint = || route.as_ref().map(|e| e.endpoint().as_ref());
+            let fallback_endpoint = || self.fallback_endpoint();
+            route_endpoint()
+                .or_else(fallback_endpoint)
+                .unwrap_or_else(default_endpoint)
+        };
+
+        let next = crate::middleware::Next::new(&self.middleware[..], endpoint);
+        next.apply(request).await
     }
 }
 
@@ -90,6 +184,17 @@ impl std::fmt::Debug for Router {
             .field("routes", &self.routes)
             .finish()
     }
+}
+
+lazy_static::lazy_static! {
+    static ref DEFAULT_ENDPOINT: crate::endpoints::SyncEndpoint<fn(Request) -> Response> = crate::endpoints::SyncEndpoint::new(|_| Response::empty_500());
+    static ref DEFAULT_ENDPOINT_PIN: Pin<&'static (dyn Endpoint + Unpin + 'static)> = Pin::new(&*DEFAULT_ENDPOINT);
+}
+
+// 'r can be anything _up to and including_ 'static, and this makes it play
+// nice with unwrap_or_else.
+pub(crate) fn default_endpoint<'r>() -> Pin<&'r dyn Endpoint> {
+    *DEFAULT_ENDPOINT_PIN
 }
 
 // Base *MUST* be either `""` or start with `"/"`.
@@ -119,19 +224,20 @@ mod test {
     use super::*;
     use crate::request::Request;
     use crate::response::Response;
-    use crate::ShortError;
+    use crate::UnderError;
 
-    async fn simple_endpoint(_: Request) -> Result<Response, ShortError> {
+    #[allow(clippy::unused_async)]
+    async fn simple_endpoint(_: Request) -> Result<Response, UnderError> {
         unimplemented!()
     }
 
     fn simple_router() -> Router {
-        let mut router = Router::new();
+        let mut router = Router::default();
         router.at("/").get(simple_endpoint);
         router.at("/alpha").get(simple_endpoint);
         router.at("/beta/{id}").get(simple_endpoint);
         router.at("/gamma/{all:path}").get(simple_endpoint);
-        router.compile();
+        router.prepare();
         router
     }
 
@@ -146,7 +252,7 @@ mod test {
 
     #[test]
     fn test_build() {
-        let _ = simple_router();
+        simple_router();
     }
 
     #[test]

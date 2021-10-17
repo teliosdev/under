@@ -1,7 +1,6 @@
 use super::Endpoint;
 use crate::{Request, Response};
 use anyhow::Error;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use tokio_util::io::ReaderStream;
@@ -17,63 +16,38 @@ impl DirEndpoint {
     }
 }
 
+#[async_trait]
 impl Endpoint for DirEndpoint {
-    fn apply<'s, 'a>(
-        &'s self,
-        request: Request,
-    ) -> Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + 'a>>
-    where
-        's: 'a,
-        Self: 'a,
-    {
-        Box::pin(async move {
-            let uri_path = request.uri().path();
-            let result = match resolve_path(request.fragment_index::<String>(1), &self.base) {
-                Some(path) => resolve_file(path, &uri_path).await,
-                None => Ok(Response::empty_404()),
-            };
-            result
-        })
+    async fn apply(self: Pin<&Self>, request: Request) -> Result<Response, Error> {
+        let uri_path = request.uri().path();
+        let result = match resolve_path(request.fragment::<String, _>(1), &self.base) {
+            Some(path) => resolve_file(path, uri_path).await,
+            None => Ok(Response::empty_404()),
+        };
+        result
     }
 }
 
-lazy_static::lazy_static! {
-    static ref DOUBLE_DOT: regex::Regex = regex::Regex::new("/.+/\\.\\.").unwrap();
-}
-
 fn resolve_path(param: Option<String>, base: &Path) -> Option<PathBuf> {
-    log::trace!("resolve_path({:?}, {:?})", param, base);
     let param = param?;
 
-    let replace = DOUBLE_DOT.replace_all(&param, "/");
+    let split = param.split('/');
+    let is_invalid = split.clone().any(|v| v == ".." || v.contains('\\'));
 
-    log::trace!("resolve_path.replace={:?}", replace);
-    let request = replace
-        .split('/')
-        .skip_while(|p| p.is_empty() || *p == "..")
-        .filter(|p| !p.is_empty() && *p != ".");
+    if is_invalid {
+        return None;
+    }
+
+    let request = split.filter(|p| !p.is_empty() && *p != ".");
     let mut buffer = base.to_path_buf();
-    request.for_each(|p| {
-        log::trace!("resolve_path.push({:?})", p);
-        buffer.push(p);
-    });
-    log::trace!("resolve_path={:?}", buffer);
+    request.for_each(|p| buffer.push(p));
     Some(buffer)
-}
-
-fn tap<It>(pos: &'static str, v: impl Iterator<Item = It>) -> impl Iterator<Item = It>
-where
-    It: std::fmt::Debug,
-{
-    let result = v.collect::<Vec<_>>();
-    log::trace!("tap({:?})={:?}", pos, result);
-    result.into_iter()
 }
 
 async fn resolve_file(mut path: PathBuf, request: &str) -> Result<Response, Error> {
     match tokio::fs::metadata(&path).await {
         Ok(meta) if meta.is_dir() && !request.ends_with('/') => {
-            return Response::permanent_redirect(format!("{}/", request));
+            return Response::permanent_redirect(format!("{}/", request)).map_err(Error::from);
         }
         Ok(meta) if meta.is_dir() => {
             path.push("index.html");

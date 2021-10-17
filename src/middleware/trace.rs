@@ -4,18 +4,21 @@ use std::pin::Pin;
 use super::{Middleware, Next};
 use crate::{Request, Response};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct TraceMiddleware;
-
-impl TraceMiddleware {
-    pub const fn new() -> Self {
-        TraceMiddleware
-    }
+#[derive(Default, Debug, Clone)]
+/// A middleware for tracing HTTP requests.
+///
+/// This logs (using `log`) each request, as well as how long each request
+/// took.  The default log level is `info`.
+pub struct TraceMiddleware {
+    _v: (),
 }
 
-impl Default for TraceMiddleware {
-    fn default() -> Self {
-        TraceMiddleware
+impl TraceMiddleware {
+    #[must_use]
+    /// Creates a new trace middleware.  This is provided as an alternative
+    /// to `Default`.
+    pub fn new() -> Self {
+        TraceMiddleware::default()
     }
 }
 

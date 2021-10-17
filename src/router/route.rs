@@ -1,13 +1,29 @@
+use super::Pattern;
 use crate::Endpoint;
-use std::fmt::Write;
 use std::pin::Pin;
 use std::sync::Arc;
 
 pub(crate) struct Route {
     pub(crate) path: String,
-    pub(crate) regex: regex::Regex,
-    pub(crate) method: Option<http::Method>,
-    pub(crate) endpoint: Pin<Box<dyn Endpoint>>,
+    pub(crate) pattern: Pattern,
+    method: Option<http::Method>,
+    endpoint: Pin<Box<dyn Endpoint>>,
+}
+
+impl Route {
+    /// Get a reference to the route's method.
+    pub(crate) fn method(&self) -> Option<&http::Method> {
+        self.method.as_ref()
+    }
+
+    /// Get a reference to the route's endpoint.
+    pub(crate) fn endpoint(&self) -> &Pin<Box<dyn Endpoint>> {
+        &self.endpoint
+    }
+
+    pub(crate) fn matches(&self, method: &http::Method) -> bool {
+        self.method.is_none() || self.method.as_ref() == Some(method)
+    }
 }
 
 impl std::fmt::Debug for Route {
@@ -15,20 +31,94 @@ impl std::fmt::Debug for Route {
         f.debug_struct("Route")
             .field("path", &self.path)
             .field("method", &self.method)
-            .finish()
+            .field("endpoint", &self.endpoint)
+            .finish_non_exhaustive()
     }
 }
 
-/// A description of a path in the router.  This is generated when you call
-/// [`Stack::at`], and it contains the passed prefix from that function.  Here,
-/// you can specify the behavior to perform at that prefix - the [`Endpoint`]s
-/// to perform on each method of that Path.
+/// A description of a path in the router.
 ///
-/// [`Stack::at`]: struct.Stack.html#method.at
-/// [`Endpoint`]: trait.Endpoint.html
-pub struct RoutePath<'a> {
+/// This is generated when you call [`crate::Router::at`], and it contains the
+/// passed prefix from that function.  Here, you can specify the behavior to
+/// perform at that prefix - the [`Endpoint`]s to perform on each method of
+/// that Path.
+///
+/// Paths are specified to have a specific format.  At any point in the path,
+/// you can use a `{}` pattern to denote a fragment.  These fragments can then
+/// be accessed in the endpoint (or any middleware) using
+/// [`crate::Request::fragment`].  A fragment should have this pattern:
+///
+/// ```text
+/// {[name][:<type>]}
+/// ```
+///
+/// Where `[name]` is the (optional) text-based name for the fragment, and
+/// `<type>` is the (optional) type of the fragment (defaulting to string).
+/// There are currently six fragment types:
+///
+/// - `oext`: matches an (optional) extension; e.g. `.jpeg`.  This can be used
+///   to allow the front-end to optionally specify the expected content-type
+///   of the response (in addition to the `Accept` header).
+/// - `int`: matches an integer.  This integer can be positive or negative, and
+///   has no bound on length; so there is no guarentee it will fit in any
+///   native number sizes.
+/// - `uint`: matches an unsigned integer.  This integer _must_ be positive.
+///   It similarly has no bound on length.
+/// - `path`: matches anything, including path segments (`/`).  This is similar
+///   to the `**` glob.
+/// - `uuid`: matches an [RFC 4122] UUID.
+/// - none / `str` / `s` / `string`: matches any characters excluding a path
+///   segment (`/`).
+///
+/// Note that using an invalid type will currently cause it to panic.  Non-named
+/// fragments (e.g. `{}`) must be indexed using numbers, 1-indexed.
+///
+/// [RFC 4122]: https://datatracker.ietf.org/doc/html/rfc4122
+///
+/// # Examples
+/// ```rust
+/// # use under::*;
+/// # async fn expect_response(http: &under::Router, path: &str, status: http::StatusCode) -> Result<(), anyhow::Error> {
+/// #     let response = http.handle(Request::get(path)?).await?;
+/// #     assert_eq!(response.status(), status);
+/// #     Ok(())
+/// # }
+///
+/// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+/// let endpoint = || under::endpoints::simple(Response::empty_204); // dummy endpoint
+/// let mut http = under::http(); // this provides us with the Router instance.
+/// http.at("/") // this is the Path instance.
+///     .get(endpoint())
+///  // specifies a path that should be a `/users/` followed by any
+///  // (unsigned) integer, followed by an optional extension (`.json`).
+///  http.at("/users/{id:uint}{ext:oext}")
+///     .get(endpoint())
+///     .post(endpoint());
+///  // specifies a path that should start with `/public/`, and then
+///  // some text.  This is required for `dir` to work properly.
+///  http.at("/public/{:path}")
+///     .get(under::endpoints::dir("public"))
+///  // another example.
+///  http.at("/actions/{id:uuid}")
+///     .get(endpoint());
+/// http.prepare();
+///
+/// use http::StatusCode;
+/// expect_response(&http, "/users/1", StatusCode::NO_CONTENT).await?;
+/// expect_response(&http, "/users/1.json", StatusCode::NO_CONTENT).await?;
+/// expect_response(&http, "/users/aaa", StatusCode::INTERNAL_SERVER_ERROR).await?;
+/// expect_response(&http, "/public/aa/a", StatusCode::NO_CONTENT).await?;
+/// expect_response(&http, "/public/", StatusCode::INTERNAL_SERVER_ERROR).await?;
+/// expect_response(&http, "/actions/00000000-0000-0000-0000-000000000000", StatusCode::NO_CONTENT).await?;
+/// expect_response(&http, "/actions/1", StatusCode::INTERNAL_SERVER_ERROR).await?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug)]
+pub struct Path<'a> {
     pub(super) prefix: String,
     pub(super) builder: &'a mut Vec<Arc<Route>>,
+    pub(super) pattern: Option<Pattern>,
 }
 
 macro_rules! method {
@@ -41,8 +131,16 @@ macro_rules! method {
     };
 }
 
-impl<'a> RoutePath<'a> {
-    /// This appends to the prefix, creating a new [`RoutePath`] from the
+impl<'a> Path<'a> {
+    pub(super) fn new(prefix: impl Into<String>, builder: &'a mut Vec<Arc<Route>>) -> Self {
+        Path {
+            prefix: prefix.into(),
+            builder,
+            pattern: None,
+        }
+    }
+
+    /// This appends to the prefix, creating a new [`Path`] from the
     /// current one and the given supplemental prefix.  This assumes that the
     /// prefix is never terminated with a forward slash, but always prefixed
     /// with one.
@@ -50,44 +148,76 @@ impl<'a> RoutePath<'a> {
     /// # Example
     /// ```rust
     /// # fn main() {
-    /// # use under::{Stack, Response, endpoint::r#static};
-    /// # let mut http = Stack::new();
-    /// # let user_index = r#static(Response::empty_204);
-    /// # let user_show = r#static(Response::empty_204);
-    /// # let user_update = r#static(Response::empty_204);
-    /// # let user_destroy = r#static(Response::empty_204);
+    /// # use under::{Router, Response, endpoints::simple};
+    /// # let mut http = under::http();
+    /// # let user_index = simple(Response::empty_204);
+    /// # let user_show = simple(Response::empty_204);
+    /// # let user_update = simple(Response::empty_204);
+    /// # let user_destroy = simple(Response::empty_204);
     /// let mut base = http.at("/user");
     /// base.get(user_index);
     /// base.at("/{id}")
     ///     .get(user_show)
     ///     .post(user_update)
     ///     .delete(user_destroy);
-    /// # http.compile();
+    /// # http.prepare();
     /// # }
     /// ```
-    ///
-    /// [`RoutePath`]: struct.RoutePath.html
-    pub fn at<P: AsRef<str>>(&mut self, path: P) -> RoutePath<'_> {
-        RoutePath {
-            prefix: super::join_paths(&self.prefix, path.as_ref()),
-            builder: self.builder,
-        }
+    pub fn at<P: AsRef<str>>(&mut self, path: P) -> Path<'_> {
+        Path::new(super::join_paths(&self.prefix, path.as_ref()), self.builder)
     }
 
+    /// Creates an endpoint responding to any method at the current prefix.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+    /// # use under::*;
+    /// # let mut http = under::http();
+    /// let endpoint = under::endpoints::simple(Response::empty_204);
+    /// let method = http::Method::from_bytes(b"TEST")?;
+    /// http.at("/user").all(endpoint);
+    /// http.prepare();
+    /// let response = http.handle(Request::from_method("/user", method.clone())?).await?;
+    /// assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+    /// let response = http.handle(Request::post("/user")?).await?;
+    /// assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn all<E: Endpoint>(&mut self, endpoint: E) -> &mut Self {
+        let pattern = self.create_pattern();
         self.builder.push(Arc::new(Route {
             path: self.prefix.clone(),
-            regex: regex::Regex::new(&regex_pattern(&self.prefix)).unwrap(),
+            pattern,
             method: None,
             endpoint: Box::pin(endpoint),
         }));
         self
     }
 
+    /// Creates an endpoint of the specified method at the current prefix.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+    /// # use under::*;
+    /// # let mut http = under::http();
+    /// # let endpoint = under::endpoints::simple(under::Response::empty_204);
+    /// let method = http::Method::from_bytes(b"TEST")?;
+    /// http.at("/user").method(method.clone(), endpoint);
+    /// http.prepare();
+    /// let response = http.handle(Request::from_method("/user", method)?).await?;
+    /// assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn method<E: Endpoint>(&mut self, method: http::Method, endpoint: E) -> &mut Self {
+        let pattern = self.create_pattern();
+
         self.builder.push(Arc::new(Route {
             path: self.prefix.clone(),
-            regex: regex::Regex::new(&regex_pattern(&self.prefix)).unwrap(),
+            pattern,
             method: Some(method),
             endpoint: Box::pin(endpoint),
         }));
@@ -97,17 +227,17 @@ impl<'a> RoutePath<'a> {
     method![
         /// Creates a GET endpoint at the current prefix.
         ///
-        /// # Example
+        /// # Examples
         /// ```rust
-        /// # #[tokio::main]
-        /// # async fn main() {
-        /// # use under::endpoint::r#static;
-        /// # let mut http = under::http();
-        /// # let endpoint = r#static(under::Response::empty_204);
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
         /// http.at("/user").get(endpoint);
-        /// http.compile();
-        /// let response = http.request("/user", &http::Method::GET).await.unwrap();
-        /// # assert_eq!(response.unwrap().status(), http::StatusCode::NO_CONTENT);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::get("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
         /// # }
         /// ```
         pub fn get = http::Method::GET;
@@ -126,55 +256,14 @@ impl<'a> RoutePath<'a> {
         /// TODO.
         pub fn patch = http::Method::PATCH;
     ];
-}
 
-lazy_static::lazy_static! {
-    static ref PATTERN: regex::Regex = regex::Regex::new("\\{(?P<name>[a-zA-Z]+)?(?::(?P<pattern>[a-zA-Z]+))?\\}").unwrap();
-}
-
-fn regex_pattern(path: &str) -> String {
-    let mut start = 0;
-    let mut buffer = String::with_capacity(path.len() + 2);
-    buffer.push('^');
-
-    for matches in PATTERN.find_iter(path) {
-        buffer.push_str(&regex::escape(&path[start..matches.start()]));
-        start = matches.end();
-        let capture = PATTERN.captures(matches.as_str()).unwrap();
-        let name = capture.name("name").map(|m| m.as_str());
-        let pattern = capture.name("pattern").map(|m| m.as_str());
-        push_pattern(&mut buffer, name, pattern);
-    }
-
-    buffer.push_str(&regex::escape(&path[start..]));
-
-    buffer.push('$');
-    buffer
-}
-
-static UUID_PATTERN: &str =
-    "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[89aAbB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}";
-
-fn push_pattern(buffer: &mut String, name: Option<&str>, pattern: Option<&str>) {
-    struct NamePattern<'n>(Option<&'n str>);
-    impl std::fmt::Display for NamePattern<'_> {
-        fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            if let Some(n) = self.0 {
-                write!(fmt, "?P<{}>", n)
-            } else {
-                Ok(())
-            }
+    fn create_pattern(&mut self) -> Pattern {
+        if let Some(pattern) = self.pattern.clone() {
+            pattern
+        } else {
+            let pattern = Pattern::new(&self.prefix);
+            self.pattern = Some(pattern.clone());
+            pattern
         }
     }
-    let name = NamePattern(name);
-    match pattern {
-        Some("oext") => write!(buffer, "(?:\\.({}[^/]+))?", name),
-        Some("int") => write!(buffer, "({}[+-]?\\d+)", name),
-        Some("uint") => write!(buffer, "({}\\d+)", name),
-        Some("path") => write!(buffer, "({}.+)", name),
-        Some("uuid") => write!(buffer, "({}{})", name, UUID_PATTERN),
-        Some("str") | Some("s") | Some("string") | None => write!(buffer, "({}[^/]+)", name),
-        Some(v) => panic!("unknown path pattern type {:?}", v),
-    }
-    .unwrap();
 }

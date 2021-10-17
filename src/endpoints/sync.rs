@@ -5,7 +5,13 @@ use crate::request::Request;
 use crate::response::{IntoResponse, Response};
 use anyhow::Error;
 
-pub(super) struct SyncEndpoint<F>(pub(super) F);
+pub struct SyncEndpoint<F>(pub(crate) F);
+
+impl<F> SyncEndpoint<F> {
+    pub fn new(f: F) -> Self {
+        SyncEndpoint(f)
+    }
+}
 
 #[async_trait]
 impl<F, Res> Endpoint for SyncEndpoint<F>
