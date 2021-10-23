@@ -11,4 +11,24 @@ pub enum UnderError {
     /// Generated when attempting to bind and listen using hyper, but it failed
     /// for some underlying reason.
     HyperServer(#[source] hyper::Error),
+    /// Generated when attempting to read the body of a request, or response,
+    /// and failing.
+    #[error("could not read the body of a request or response")]
+    ReadBody(#[source] hyper::Error),
+    /// Generated when attempting to deserialize the body of a request or
+    /// response from JSON.
+    #[error("could not deserialize the body of a request or response from JSON")]
+    JsonDeserialization(#[source] serde_json::Error),
+    /// Generated when attempting to deserialize the body of a request or
+    /// response from text.
+    #[error("could not deserialize the body of a request or response from utf-8")]
+    TextDeserialization(#[source] std::str::Utf8Error),
+    /// Generated when attempting to deserialize the body of a request or
+    /// response from x-www-form-urlencoded.
+    #[error("could not deserialize the body of a request or response from urlencoded")]
+    FormDeserialization(#[source] serde_urlencoded::de::Error),
+    /// Generated when attempting to sniff the request or response of its
+    /// content type.
+    #[error("the content-type of the request was invalid")]
+    InvalidContentType(Option<mime::Mime>),
 }

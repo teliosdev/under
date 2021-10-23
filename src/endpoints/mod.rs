@@ -140,12 +140,12 @@ where
 ///     .with(under::middleware::StateMiddleware::new("bar".to_string()))
 ///     .then(endpoint));
 /// http.prepare();
-/// let response = http.handle(Request::get("/foo")?).await?;
-/// let body = response.to_bytes().await?;
-/// assert_eq!(&body[..], b"hello, world");
-/// let response = http.handle(Request::get("/bar")?).await?;
-/// let body = response.to_bytes().await?;
-/// assert_eq!(&body[..], b"hello, bar");
+/// let mut response = http.handle(Request::get("/foo")?).await?;
+/// let body = response.as_text().await?;
+/// assert_eq!(body, "hello, world");
+/// let mut response = http.handle(Request::get("/bar")?).await?;
+/// let body = response.as_text().await?;
+/// assert_eq!(body, "hello, bar");
 /// # Ok(())
 /// # }
 /// ```

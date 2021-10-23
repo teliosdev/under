@@ -84,6 +84,38 @@ impl Request {
         /// ```
         #[inline]
         pub fn uri(&self) -> &http::Uri;
+        /// Returns a reference to the associated HTTP method.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # use under::*;
+        /// let request: Request = Request::get("/").unwrap();
+        /// assert_eq!(*request.method(), http::Method::GET);
+        /// ```
+        #[inline]
+        pub fn method(&self) -> &http::Method;
+        /// Returns a reference to the associated header field map.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use under::*;
+        /// let request = Request::get("/").unwrap();
+        /// assert!(request.headers().is_empty());
+        /// ```
+        pub fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
+        /// Returns a mutable reference to the associated header field map.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # use under::*;
+        /// # use http::header::*;
+        /// let mut request = Request::get("/").unwrap();
+        /// request.headers_mut().insert(HOST, HeaderValue::from_static("world"));
+        /// assert!(!request.headers().is_empty());
+        /// ```
+        pub fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue>;
         /// Returns a reference to the associated extensions.
         ///
         /// # Examples
@@ -105,16 +137,6 @@ impl Request {
         /// ```
         #[inline]
         pub fn extensions_mut(&mut self) -> &mut http::Extensions;
-        /// Returns a reference to the associated HTTP method.
-        ///
-        /// # Examples
-        /// ```rust
-        /// # use under::*;
-        /// let request: Request = Request::get("/").unwrap();
-        /// assert_eq!(*request.method(), http::Method::GET);
-        /// ```
-        #[inline]
-        pub fn method(&self) -> &http::Method;
     }
     construct! {
         /// Creates a new request initialized with the GET method and the given
@@ -237,10 +259,10 @@ impl Request {
     /// let mut http = under::http();
     /// http.at("/buy/{amount:uint}").get(point);
     /// http.prepare();
-    /// let response = http.handle(Request::get("/buy/3")?).await?;
+    /// let mut response = http.handle(Request::get("/buy/3")?).await?;
     /// assert_eq!(response.status(), http::StatusCode::OK);
-    /// let body = response.to_bytes().await?;
-    /// assert_eq!(&body[..], b"you bought 3 coconuts");
+    /// let body = response.as_text().await?;
+    /// assert_eq!(body, "you bought 3 coconuts");
     /// # Ok(())
     /// # }
     /// ```
@@ -264,10 +286,10 @@ impl Request {
     /// let mut http = under::http();
     /// http.at("/hello/{target}").get(point);
     /// http.prepare();
-    /// let response = http.handle(Request::get("/hello/foo")?).await?;
+    /// let mut response = http.handle(Request::get("/hello/foo")?).await?;
     /// assert_eq!(response.status(), http::StatusCode::OK);
-    /// let body = response.to_bytes().await?;
-    /// assert_eq!(&body[..], b"hello, foo");
+    /// let body = response.as_text().await?;
+    /// assert_eq!(body, "hello, foo");
     /// # Ok(())
     /// # }
     /// ```
@@ -302,5 +324,33 @@ impl Request {
 impl From<http::Request<hyper::Body>> for Request {
     fn from(r: http::Request<hyper::Body>) -> Self {
         Request(r)
+    }
+}
+
+impl crate::has_body::sealed::Sealed for Request {}
+impl crate::has_headers::sealed::Sealed for Request {}
+
+impl crate::HasBody for Request {
+    fn body_mut(&mut self) -> &mut hyper::Body {
+        self.0.body_mut()
+    }
+
+    fn content_type(&self) -> Option<mime::Mime> {
+        self.0
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .map(|v| v.as_bytes())
+            .and_then(|v| std::str::from_utf8(v).ok())
+            .and_then(|v| mime::Mime::from_str(v).ok())
+    }
+}
+
+impl crate::HasHeaders for Request {
+    fn headers(&self) -> &http::HeaderMap<http::HeaderValue> {
+        self.0.headers()
+    }
+
+    fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue> {
+        self.0.headers_mut()
     }
 }

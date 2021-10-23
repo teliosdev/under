@@ -1,4 +1,5 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
+use std::str::FromStr;
 
 #[derive(Debug)]
 #[must_use]
@@ -11,7 +12,7 @@ use std::convert::{TryFrom, TryInto};
 /// # Examples
 ///
 /// ```rust
-/// use under::{Request, Response};
+/// use under::{Request, Response, HasBody};
 ///
 /// // Here, we're defining an endpoint for our server.
 /// async fn handle_get(request: Request) -> Result<Response, anyhow::Error> {
@@ -26,10 +27,10 @@ use std::convert::{TryFrom, TryInto};
 ///     .at("/hello").get(handle_get)
 ///     .at("/hello/{target}").get(handle_get);
 /// http.prepare();
-/// let response = http.handle(Request::get("/hello")?).await?;
+/// let mut response = http.handle(Request::get("/hello")?).await?;
 /// assert_eq!(response.status(), http::StatusCode::OK);
-/// let body = response.to_bytes().await?;
-/// assert_eq!(&body[..], b"hello, world");
+/// let body = response.as_text().await?;
+/// assert_eq!(body, "hello, world");
 /// # Ok(())
 /// # }
 /// ```
@@ -61,6 +62,20 @@ macro_rules! forward {
 }
 
 impl Response {
+    /// Creates an empty response with a status code of 200.
+    ///
+    /// See [`Response::empty_status`] for more information.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use under::*;
+    /// let response = Response::empty_200();
+    /// assert_eq!(response.status(), http::StatusCode::OK);
+    /// ```
+    pub fn empty_200() -> Self {
+        Self::empty_status(http::StatusCode::OK)
+    }
+
     /// Creates an empty response with a status code of 204.
     ///
     /// See [`Response::empty_status`] for more information.
@@ -165,22 +180,6 @@ impl Response {
         )
     }
 
-    /// Replaces the contents of the request with the given text body.  Note
-    /// that this does _not_ update the Content-Type; the caller is responsible
-    /// for that.
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use under::*;
-    /// let response = Response::empty_404();
-    /// let response = response.with_text("404!");
-    /// assert_eq!(response.header(http::header::CONTENT_TYPE), None);
-    /// ```
-    pub fn with_text<V: Into<String>>(self, new_body: V) -> Self {
-        let value = new_body.into();
-        Response(self.0.map(|_| hyper::Body::from(value)))
-    }
-
     /// Creates a response with the given JSON body.  The returned response
     /// has a `Content-Type` of `application/json; charset=utf-8`.
     ///
@@ -207,50 +206,17 @@ impl Response {
         ))
     }
 
-    /// Replaces the contents of the request with the given JSON body.  Note
-    /// that this does _not_ update the Content-Type; the caller is responsible
-    /// for that.
-    ///
-    /// # Errors
-    /// This errors if the underlying JSON serialization fails; and it will
-    /// return that exact error.
+    /// Sets the current responses's status code.
     ///
     /// # Examples
     /// ```rust
     /// # use under::*;
-    /// # fn main() -> Result<(), anyhow::Error> {
-    /// let response = Response::empty_404();
-    /// let response = response.with_json(&serde_json::json!({ "error": 404 }))?;
-    /// assert_eq!(response.header(http::header::CONTENT_TYPE), None);
-    /// # Ok(())
-    /// # }
+    /// let mut response = Response::empty_404();
+    /// response.set_status(http::StatusCode::OK);
+    /// assert_eq!(response.status(), http::StatusCode::OK);
     /// ```
-    pub fn with_json<V: serde::Serialize>(self, new_body: &V) -> Result<Self, serde_json::Error> {
-        let value = serde_json::to_string(new_body)?;
-        Ok(Response(self.0.map(|_| hyper::Body::from(value))))
-    }
-
-    /// Converts the contents of this response into a byte buffer, which can
-    /// then be consumed downstream.
-    ///
-    /// # Note
-    /// Care needs to be taken if the remote is untrusted. The function doesn’t
-    /// implement any length checks and an malicious peer might make it consume
-    /// arbitrary amounts of memory. Checking the `Content-Length` is a
-    /// possibility, but it is not strictly mandated to be present.
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use under::*;
-    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
-    /// let response = Response::text("hello, world");
-    /// let body = response.to_bytes().await?;
-    /// assert_eq!(&body[..], b"hello, world");
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn to_bytes(self) -> Result<bytes::Bytes, hyper::Error> {
-        hyper::body::to_bytes(self.0.into_body()).await
+    pub fn set_status<S: Into<http::StatusCode>>(&mut self, status: S) {
+        *self.0.status_mut() = status.into();
     }
 
     /// Returns a response with the new status code.
@@ -265,45 +231,6 @@ impl Response {
     pub fn with_status<S: Into<http::StatusCode>>(mut self, status: S) -> Self {
         *self.0.status_mut() = status.into();
         Response(self.0)
-    }
-
-    /// Retrieves the given header specified here.
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use under::*;
-    /// let response = Response::text("hello, world");
-    /// let content_type = response.header("Content-Type").unwrap();
-    /// assert_eq!(content_type.as_bytes(), b"text/plain; charset=utf-8");
-    /// ```
-    pub fn header<H: http::header::AsHeaderName>(&self, key: H) -> Option<&http::HeaderValue> {
-        self.0.headers().get(key)
-    }
-
-    /// Sets the given header to the given value.  If there already was a
-    /// header, it is replaced with the given value.
-    ///
-    /// # Errors
-    /// If the given value cannot be converted into a header value, this will
-    /// return an error.
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use under::*;
-    /// # use http::header::*;
-    /// let response = Response::default();
-    /// let response = response.with_header(LOCATION, "/").unwrap();
-    /// let location: Option<&[u8]> = response.header(LOCATION).map(|v| v.as_bytes());
-    /// assert_eq!(location, Some(&b"/"[..]));
-    /// ```
-    pub fn with_header<H, V>(mut self, key: H, value: V) -> Result<Self, http::Error>
-    where
-        H: http::header::IntoHeaderName,
-        V: TryInto<http::HeaderValue>,
-        http::Error: From<<V as TryInto<http::HeaderValue>>::Error>,
-    {
-        self.0.headers_mut().insert(key, value.try_into()?);
-        Ok(Response(self.0))
     }
 
     forward! {
@@ -338,28 +265,6 @@ impl Response {
         /// assert_eq!(response.extensions().get(), Some(&"hello"));
         /// ```
         pub fn extensions_mut(&mut self) -> &mut http::Extensions;
-        /// Returns a reference to the associated header field map.
-        ///
-        /// # Examples
-        ///
-        /// ```rust
-        /// # use under::*;
-        /// let response = Response::default();
-        /// assert!(response.headers().is_empty());
-        /// ```
-        pub fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
-        /// Returns a mutable reference to the associated header field map.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// # use under::*;
-        /// # use http::header::*;
-        /// let mut response = Response::default();
-        /// response.headers_mut().insert(HOST, HeaderValue::from_static("world"));
-        /// assert!(!response.headers().is_empty());
-        /// ```
-        pub fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue>;
     }
 }
 
@@ -407,6 +312,33 @@ where
 impl IntoResponse for std::convert::Infallible {
     fn into_response(self) -> Result<Response, anyhow::Error> {
         match self {}
+    }
+}
+
+impl crate::has_body::sealed::Sealed for Response {}
+impl crate::has_headers::sealed::Sealed for Response {}
+
+impl crate::HasHeaders for Response {
+    fn headers(&self) -> &http::HeaderMap<http::HeaderValue> {
+        self.0.headers()
+    }
+
+    fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue> {
+        self.0.headers_mut()
+    }
+}
+
+impl crate::HasBody for Response {
+    fn body_mut(&mut self) -> &mut hyper::Body {
+        self.0.body_mut()
+    }
+    fn content_type(&self) -> Option<mime::Mime> {
+        self.0
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .map(|v| v.as_bytes())
+            .and_then(|v| std::str::from_utf8(v).ok())
+            .and_then(|v| mime::Mime::from_str(v).ok())
     }
 }
 

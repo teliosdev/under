@@ -76,10 +76,11 @@ impl std::fmt::Debug for Route {
 /// [RFC 4122]: https://datatracker.ietf.org/doc/html/rfc4122
 ///
 /// # Examples
-/// ```rust
+/// ```rust,no_run
 /// # use under::*;
 /// # async fn expect_response(http: &under::Router, path: &str, status: http::StatusCode) -> Result<(), anyhow::Error> {
 /// #     let response = http.handle(Request::get(path)?).await?;
+/// #     eprintln!("{}: {} (expected: {})", path, response.status(), status);
 /// #     assert_eq!(response.status(), status);
 /// #     Ok(())
 /// # }
@@ -88,7 +89,7 @@ impl std::fmt::Debug for Route {
 /// let endpoint = || under::endpoints::simple(Response::empty_204); // dummy endpoint
 /// let mut http = under::http(); // this provides us with the Router instance.
 /// http.at("/") // this is the Path instance.
-///     .get(endpoint())
+///     .get(endpoint());
 ///  // specifies a path that should be a `/users/` followed by any
 ///  // (unsigned) integer, followed by an optional extension (`.json`).
 ///  http.at("/users/{id:uint}{ext:oext}")
@@ -97,13 +98,14 @@ impl std::fmt::Debug for Route {
 ///  // specifies a path that should start with `/public/`, and then
 ///  // some text.  This is required for `dir` to work properly.
 ///  http.at("/public/{:path}")
-///     .get(under::endpoints::dir("public"))
+///     .get(endpoint());
 ///  // another example.
 ///  http.at("/actions/{id:uuid}")
 ///     .get(endpoint());
 /// http.prepare();
 ///
 /// use http::StatusCode;
+/// eprintln!("{:#?}", http);
 /// expect_response(&http, "/users/1", StatusCode::NO_CONTENT).await?;
 /// expect_response(&http, "/users/1.json", StatusCode::NO_CONTENT).await?;
 /// expect_response(&http, "/users/aaa", StatusCode::INTERNAL_SERVER_ERROR).await?;

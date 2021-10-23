@@ -35,6 +35,8 @@ extern crate async_trait;
 mod endpoint;
 pub mod endpoints;
 mod error;
+mod has_body;
+mod has_headers;
 pub mod middleware;
 mod request;
 mod response;
@@ -42,6 +44,8 @@ mod router;
 
 pub use self::endpoint::Endpoint;
 pub use self::error::UnderError;
+pub use self::has_body::HasBody;
+pub use self::has_headers::HasHeaders;
 pub use self::middleware::Middleware;
 pub use self::request::fragment::FragmentSelect;
 pub use self::request::Request;
