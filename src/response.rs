@@ -290,7 +290,24 @@ impl From<Response> for http::Response<hyper::Body> {
     }
 }
 
+/// Converts the current type into a [`under::Response`].
+///
+/// This assumes that the conversion into a response is fallible
+/// (as it often is).  This is used instead of `TryFrom` because
+/// `TryFrom<Result<T, E>>` is not implemented for `Result<T, E>`.
+///
+/// This uses `anyhow::Error` as the error type for a few reasons:
+///
+/// 1. [`anyhow::Error`] does not implement [`std::error::Error`].
+/// 2. [`std::convert::Infallible`]/[`!`] does not implement
+///    `Into<T>`/`From<T>`.
+/// 3. I can't figure out how to reconcile the two such that
+///    `IntoResponse` can be implemented for `Result<R, E>` where
+///    `R: IntoResponse`; especially if `R` is `Response`, as the
+///    `IntoResponse` implementation for that would have the error
+///    type be `Infallible`.
 pub trait IntoResponse {
+    /// Converts the current type into a response.
     fn into_response(self) -> Result<Response, anyhow::Error>;
 }
 
@@ -300,12 +317,14 @@ impl IntoResponse for Response {
     }
 }
 
-impl<E> IntoResponse for Result<Response, E>
+impl<R, E> IntoResponse for Result<R, E>
 where
+    R: IntoResponse,
     E: Into<anyhow::Error>,
 {
     fn into_response(self) -> Result<Response, anyhow::Error> {
         self.map_err(Into::into)
+            .and_then(|r| r.into_response().map_err(Into::into))
     }
 }
 
@@ -350,6 +369,8 @@ mod tests {
     fn convert_response() {
         let response = Response::empty_500();
 
-        assert!(Ok::<_, anyhow::Error>(response).into_response().is_ok());
+        assert!(Ok::<_, std::convert::Infallible>(response)
+            .into_response()
+            .is_ok());
     }
 }

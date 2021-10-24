@@ -49,7 +49,7 @@ pub use self::has_headers::HasHeaders;
 pub use self::middleware::Middleware;
 pub use self::request::fragment::FragmentSelect;
 pub use self::request::Request;
-pub use self::response::Response;
+pub use self::response::{IntoResponse, Response};
 pub use self::router::{Path, Router};
 
 #[must_use]

@@ -73,71 +73,6 @@ macro_rules! construct {
 pub struct Request(http::Request<hyper::Body>);
 
 impl Request {
-    forward! {
-        /// Returns a reference to the associated URI.
-        ///
-        /// # Examples
-        /// ```rust
-        /// # use under::*;
-        /// let request: Request = Request::get("/").unwrap();
-        /// assert_eq!(&*request.uri(), "/");
-        /// ```
-        #[inline]
-        pub fn uri(&self) -> &http::Uri;
-        /// Returns a reference to the associated HTTP method.
-        ///
-        /// # Examples
-        /// ```rust
-        /// # use under::*;
-        /// let request: Request = Request::get("/").unwrap();
-        /// assert_eq!(*request.method(), http::Method::GET);
-        /// ```
-        #[inline]
-        pub fn method(&self) -> &http::Method;
-        /// Returns a reference to the associated header field map.
-        ///
-        /// # Examples
-        ///
-        /// ```rust
-        /// # use under::*;
-        /// let request = Request::get("/").unwrap();
-        /// assert!(request.headers().is_empty());
-        /// ```
-        pub fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
-        /// Returns a mutable reference to the associated header field map.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// # use under::*;
-        /// # use http::header::*;
-        /// let mut request = Request::get("/").unwrap();
-        /// request.headers_mut().insert(HOST, HeaderValue::from_static("world"));
-        /// assert!(!request.headers().is_empty());
-        /// ```
-        pub fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue>;
-        /// Returns a reference to the associated extensions.
-        ///
-        /// # Examples
-        /// ```rust
-        /// # use under::*;
-        /// let request: Request = Request::get("/").unwrap();
-        /// assert!(request.extensions().get::<i32>().is_none());
-        /// ```
-        #[inline]
-        pub fn extensions(&self) -> &http::Extensions;
-        /// Returns a mutable reference to the associated extensions.
-        ///
-        /// # Examples
-        /// ```rust
-        /// # use under::*;
-        /// let mut request: Request = Request::get("/").unwrap();
-        /// request.extensions_mut().insert("hello");
-        /// assert_eq!(request.extensions().get(), Some(&"hello"));
-        /// ```
-        #[inline]
-        pub fn extensions_mut(&mut self) -> &mut http::Extensions;
-    }
     construct! {
         /// Creates a new request initialized with the GET method and the given
         /// URI.
@@ -318,6 +253,74 @@ impl Request {
 
     fn fragment_ext(&self) -> Option<&Fragment> {
         self.extensions().get::<Fragment>()
+    }
+
+    forward! {
+        /// Returns a reference to the associated URI.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # use under::*;
+        /// let request: Request = Request::get("/").unwrap();
+        /// assert_eq!(&*request.uri(), "/");
+        /// ```
+        #[inline]
+        pub fn uri(&self) -> &http::Uri;
+        /// Returns a reference to the associated HTTP method.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # use under::*;
+        /// let request: Request = Request::get("/").unwrap();
+        /// assert_eq!(*request.method(), http::Method::GET);
+        /// ```
+        #[inline]
+        pub fn method(&self) -> &http::Method;
+        /// Returns a reference to the associated header field map.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use under::*;
+        /// let request = Request::get("/").unwrap();
+        /// assert!(request.headers().is_empty());
+        /// ```
+        #[inline]
+        pub fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
+        /// Returns a mutable reference to the associated header field map.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # use under::*;
+        /// # use http::header::*;
+        /// let mut request = Request::get("/").unwrap();
+        /// request.headers_mut().insert(HOST, HeaderValue::from_static("world"));
+        /// assert!(!request.headers().is_empty());
+        /// ```
+        #[inline]
+        pub fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue>;
+        /// Returns a reference to the associated extensions.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # use under::*;
+        /// let request: Request = Request::get("/").unwrap();
+        /// assert!(request.extensions().get::<i32>().is_none());
+        /// ```
+        #[inline]
+        pub fn extensions(&self) -> &http::Extensions;
+        /// Returns a mutable reference to the associated extensions.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # use under::*;
+        /// let mut request: Request = Request::get("/").unwrap();
+        /// request.extensions_mut().insert("hello");
+        /// assert_eq!(request.extensions().get(), Some(&"hello"));
+        /// ```
+        #[inline]
+        pub fn extensions_mut(&mut self) -> &mut http::Extensions;
     }
 }
 
