@@ -19,6 +19,7 @@ mod cookies;
 mod state;
 mod trace;
 #[cfg(feature = "cookie")]
+#[doc(cfg(feature = "cookie"))]
 pub use self::cookies::{CookieExt, CookieMiddleware};
 pub use self::state::{State, StateMiddleware};
 pub use self::trace::TraceMiddleware;

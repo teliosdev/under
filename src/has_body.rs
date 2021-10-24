@@ -9,13 +9,32 @@ macro_rules! has_body {
             /// # use under::*;
             /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
             /// let mut response = Response::default();
-            /// response.with_body("foo");
+            /// response.set_body("foo");
             /// let body = hyper::body::to_bytes(response.take_body()).await?;
             /// assert_eq!(&body[..], b"foo");
             /// # Ok(())
             /// # }
             /// ```
-            pub fn with_body<I: Into<hyper::Body>>(&mut self, body: I) -> &mut Self {
+            pub fn set_body<I: Into<hyper::Body>>(&mut self, body: I) -> &mut Self {
+                *self.body_mut() = body.into();
+                self
+            }
+
+            /// Sets the body of the request to the given body, consuming
+            /// `self`.  This causes the previous body to be dropped in place.
+            ///
+            /// # Examples
+            /// ```rust
+            /// # use under::*;
+            /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+            /// let mut response = Response::default()
+            ///     .with_body("foo");
+            /// let body = hyper::body::to_bytes(response.take_body()).await?;
+            /// assert_eq!(&body[..], b"foo");
+            /// # Ok(())
+            /// # }
+            /// ```
+            pub fn with_body<I: Into<hyper::Body>>(mut self, body: I) -> Self {
                 *self.body_mut() = body.into();
                 self
             }
@@ -54,15 +73,41 @@ macro_rules! has_body {
             /// # use under::*;
             /// # fn main() -> Result<(), anyhow::Error> {
             /// let mut response = Response::empty_404();
+            /// response.set_json(&serde_json::json!({ "error": 404 }))?;
+            /// assert_eq!(response.header(http::header::CONTENT_TYPE), None);
+            /// # Ok(())
+            /// # }
+            /// ```
+            pub fn set_json<V: serde::Serialize>(
+                &mut self,
+                new_body: &V,
+            ) -> Result<&mut Self, serde_json::Error> {
+                let value = serde_json::to_string(new_body)?;
+                Ok(self.set_body(value))
+            }
+
+            /// Replaces the contents of the body with the given JSON body,
+            /// consuming `self`.  Note that this does _not_ update the
+            /// Content-Type; the caller is responsible for that.
+            ///
+            /// # Errors
+            /// This errors if the underlying JSON serialization fails; and it will
+            /// return that exact error.
+            ///
+            /// # Examples
+            /// ```rust
+            /// # use under::*;
+            /// # fn main() -> Result<(), anyhow::Error> {
+            /// let mut response = Response::empty_404();
             /// let response = response.with_json(&serde_json::json!({ "error": 404 }))?;
             /// assert_eq!(response.header(http::header::CONTENT_TYPE), None);
             /// # Ok(())
             /// # }
             /// ```
             pub fn with_json<V: serde::Serialize>(
-                &mut self,
+                self,
                 new_body: &V,
-            ) -> Result<&mut Self, serde_json::Error> {
+            ) -> Result<Self, serde_json::Error> {
                 let value = serde_json::to_string(new_body)?;
                 Ok(self.with_body(value))
             }

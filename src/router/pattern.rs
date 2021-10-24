@@ -11,7 +11,7 @@ pub(crate) struct Pattern {
 }
 
 impl Pattern {
-    pub fn new(prefix: &str) -> Self {
+    pub(crate) fn new(prefix: &str) -> Self {
         let regex = regex::Regex::new(&regex_pattern(prefix)).unwrap();
         let match_keys = regex
             .capture_names()

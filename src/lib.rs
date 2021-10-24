@@ -25,9 +25,9 @@
 //!     Ok(())
 //! }
 //! ```
-#![deny(clippy::correctness)]
-#![warn(missing_docs)]
-#![warn(missing_debug_implementations)]
+#![warn(missing_debug_implementations, missing_docs, rust_2018_idioms)]
+#![deny(clippy::correctness, unused_must_use)]
+#![feature(doc_cfg)]
 
 #[macro_use]
 extern crate async_trait;
@@ -45,8 +45,12 @@ pub mod middleware;
 mod request;
 mod response;
 mod router;
+#[cfg(feature = "sse")]
+#[doc(cfg(feature = "sse"))]
+pub mod sse;
 
 #[cfg(feature = "cookie")]
+#[doc(cfg(feature = "cookie"))]
 pub use cookie::{Cookie, CookieBuilder, CookieJar};
 
 pub use self::endpoint::Endpoint;
