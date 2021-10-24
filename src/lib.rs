@@ -35,22 +35,46 @@ extern crate async_trait;
 mod endpoint;
 pub mod endpoints;
 mod error;
+#[macro_use]
 mod has_body;
+#[macro_use]
 mod has_headers;
+#[macro_use]
+mod has_extensions;
 pub mod middleware;
 mod request;
 mod response;
 mod router;
 
+#[cfg(feature = "cookie")]
+pub use cookie::{Cookie, CookieBuilder, CookieJar};
+
 pub use self::endpoint::Endpoint;
 pub use self::error::UnderError;
-pub use self::has_body::HasBody;
-pub use self::has_headers::HasHeaders;
 pub use self::middleware::Middleware;
 pub use self::request::fragment::FragmentSelect;
 pub use self::request::Request;
 pub use self::response::{IntoResponse, Response};
 pub use self::router::{Path, Router};
+
+/// A type alias for [`std::result::Result`].
+///
+/// The most common use-case for this type is for endpoints, which return this
+/// type as a response for a request.
+///
+/// # Examples
+/// ```rust
+/// async fn handle(req: under::Request) -> under::Result {
+///     return Ok(under::Response::text("hello, world!"));
+/// }
+///
+/// # use under::*;
+/// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+/// let mut http = under::http();
+/// http.at("/").get(handle);
+/// # Ok(())
+/// # }
+pub type Result<R = Response, E = anyhow::Error> = std::result::Result<R, E>;
 
 #[must_use]
 #[inline]

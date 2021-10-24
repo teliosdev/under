@@ -1,5 +1,4 @@
 use std::convert::TryFrom;
-use std::str::FromStr;
 
 #[derive(Debug)]
 #[must_use]
@@ -12,7 +11,7 @@ use std::str::FromStr;
 /// # Examples
 ///
 /// ```rust
-/// use under::{Request, Response, HasBody};
+/// use under::{Request, Response};
 ///
 /// // Here, we're defining an endpoint for our server.
 /// async fn handle_get(request: Request) -> Result<Response, anyhow::Error> {
@@ -233,6 +232,11 @@ impl Response {
         Response(self.0)
     }
 
+    #[doc(hidden)]
+    pub fn body_mut(&mut self) -> &mut hyper::Body {
+        self.0.body_mut()
+    }
+
     forward! {
         /// Returns the [`http::StatusCode`].
         ///
@@ -265,8 +269,34 @@ impl Response {
         /// assert_eq!(response.extensions().get(), Some(&"hello"));
         /// ```
         pub fn extensions_mut(&mut self) -> &mut http::Extensions;
+        /// Returns a reference to the associated header field map.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use under::*;
+        /// let response = Response::default();
+        /// assert!(response.headers().is_empty());
+        /// ```
+        pub fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
+        /// Returns a mutable reference to the associated header field map.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # use under::*;
+        /// # use http::header::*;
+        /// let mut response = Response::default();
+        /// response.headers_mut().insert(HOST, HeaderValue::from_static("world"));
+        /// assert!(!response.headers().is_empty());
+        /// ```
+        pub fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue>;
     }
 }
+
+has_body!(Response);
+has_extensions!(Response);
+has_headers!(Response);
 
 impl Default for Response {
     fn default() -> Self {
@@ -290,7 +320,7 @@ impl From<Response> for http::Response<hyper::Body> {
     }
 }
 
-/// Converts the current type into a [`under::Response`].
+/// Converts the current type into a [`crate::Response`].
 ///
 /// This assumes that the conversion into a response is fallible
 /// (as it often is).  This is used instead of `TryFrom` because
@@ -331,33 +361,6 @@ where
 impl IntoResponse for std::convert::Infallible {
     fn into_response(self) -> Result<Response, anyhow::Error> {
         match self {}
-    }
-}
-
-impl crate::has_body::sealed::Sealed for Response {}
-impl crate::has_headers::sealed::Sealed for Response {}
-
-impl crate::HasHeaders for Response {
-    fn headers(&self) -> &http::HeaderMap<http::HeaderValue> {
-        self.0.headers()
-    }
-
-    fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue> {
-        self.0.headers_mut()
-    }
-}
-
-impl crate::HasBody for Response {
-    fn body_mut(&mut self) -> &mut hyper::Body {
-        self.0.body_mut()
-    }
-    fn content_type(&self) -> Option<mime::Mime> {
-        self.0
-            .headers()
-            .get(http::header::CONTENT_TYPE)
-            .map(|v| v.as_bytes())
-            .and_then(|v| std::str::from_utf8(v).ok())
-            .and_then(|v| mime::Mime::from_str(v).ok())
     }
 }
 

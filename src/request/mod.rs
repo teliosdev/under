@@ -232,27 +232,143 @@ impl Request {
         self.fragment_ext()?.select(key)
     }
 
-    /// Returns state information provided by the
-    /// [`crate::middleware::StateMiddleware`] middleware.  This is a shortcut
-    /// to retrieving the [`crate::middleware::State`] extension from the
-    /// request.
+    fn fragment_ext(&self) -> Option<&Fragment> {
+        self.extensions().get::<Fragment>()
+    }
+
+    /// Parses the query string from the request into the provided type.  If
+    /// there is no query string, then `None` is returned; or, if the query
+    /// string cannot be parsed into the given type, then `None` is also
+    /// returned.
     ///
     /// # Examples
     /// ```rust
     /// # use under::*;
-    /// use under::middleware::State;
-    /// let mut request = Request::get("/").unwrap();
-    /// request.extensions_mut().insert(State(123u32));
-    /// assert_eq!(request.state::<u32>(), Some(&123u32));
+    /// let request = Request::get("/users?id=1").unwrap();
+    /// #[derive(serde::Deserialize)]
+    /// struct User { id: u32 }
+    /// let user: User = request.query().unwrap();
+    /// assert_eq!(user.id, 1);
     /// ```
-    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        self.extensions()
-            .get::<crate::middleware::State<T>>()
-            .map(|v| &v.0)
+    pub fn query<'q, S: serde::Deserialize<'q>>(&'q self) -> Option<S> {
+        self.uri()
+            .query()
+            .and_then(|s| serde_qs::from_str::<S>(s).ok())
     }
 
-    fn fragment_ext(&self) -> Option<&Fragment> {
-        self.extensions().get::<Fragment>()
+    /// Attempts to load the peer address of the request.  This is only
+    /// available if loaded through the hyper service stack (i.e. the request
+    /// originates from [`crate::Router::listen`]), and so cannot garunteed
+    /// to be present.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use under::*;
+    ///
+    /// async fn handle(request: Request) -> Response {
+    ///     let peer = request.peer_addr();
+    ///     match request.peer_addr() {
+    ///        Some(addr) => Response::text(format!("{}", addr)),
+    ///        None => Response::text("no peer address")
+    ///     }
+    /// }
+    ///
+    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+    /// let mut http = under::http();
+    /// http.at("/").get(handle);
+    /// http.listen("0.0.0.0:8080").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn peer_addr(&self) -> Option<std::net::SocketAddr> {
+        Some(self.ext::<crate::middleware::PeerAddress>()?.0)
+    }
+
+    /// Sets the peer address of this request to a localhost address.  This is
+    /// only useful for testing, and should not be used in production.  This
+    /// allows you to test the request handling without having to bind to a
+    /// port.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// use std::net::SocketAddr;
+    /// let request = Request::get("/").unwrap()
+    ///     .with_local_addr();
+    /// assert_eq!(request.peer_addr(), Some(SocketAddr::from(([127, 0, 0, 1], 0))));
+    /// ```
+    pub fn with_local_addr(mut self) -> Self {
+        self.extensions_mut()
+            .insert(crate::middleware::PeerAddress(std::net::SocketAddr::from(
+                ([127, 0, 0, 1], 0),
+            )));
+        self
+    }
+
+    /// Attempts to load the "remote" address for this request.  This is
+    /// determined in the following priority:
+    ///
+    /// 1. The [`Forwarded` header] `for` key, if present;
+    /// 2. The _first_ item of the _first_ `X-Forwarded-For` header, if present;
+    /// 3. The peer address, if loaded through the hyper service stack (see
+    ///    [`Self::peer_addr`]).
+    ///
+    /// # Note
+    /// The client may (maliciously) include either the `Forwarded` header
+    /// or the `X-Forwarded-For` header, if your reverse proxy does not filter
+    /// either.  Be wary of this when configuring your reverse proxy to provide
+    /// the correct address.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// use std::net::IpAddr;
+    /// let request = Request::get("/").unwrap()
+    ///     .with_header("Forwarded", "for=10.0.0.3").unwrap();
+    /// assert_eq!(request.remote(), Some(IpAddr::from([10, 0, 0, 3])));
+    /// ```
+    ///
+    /// ```rust
+    /// # use under::*;
+    /// use std::net::IpAddr;
+    /// let request = Request::get("/").unwrap()
+    ///     .with_header("X-Forwarded-For", "10.0.0.3").unwrap();
+    /// assert_eq!(request.remote(), Some(IpAddr::from([10, 0, 0, 3])));
+    /// ```
+    ///
+    /// ```rust
+    /// # use under::*;
+    /// use std::net::IpAddr;
+    /// let request = Request::get("/").unwrap()
+    ///     .with_local_addr();
+    /// assert_eq!(request.remote(), Some(IpAddr::from([127, 0, 0, 1])));
+    /// ```
+    pub fn remote(&self) -> Option<std::net::IpAddr> {
+        use std::net::IpAddr;
+        fn forwarded_header(request: &Request) -> Option<IpAddr> {
+            request
+                .header("Forwarded")
+                .and_then(|s| s.to_str().ok())?
+                .split(';')
+                .find_map(|s| {
+                    s.trim()
+                        .strip_prefix("for=")
+                        .and_then(|s| s.trim_matches('"').parse::<IpAddr>().ok())
+                })
+        }
+
+        fn x_forwarded_for_header(request: &Request) -> Option<IpAddr> {
+            request
+                .header("X-Forwarded-For")
+                .and_then(|s| s.to_str().ok())?
+                .split(',')
+                .next()
+                .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        }
+
+        forwarded_header(self)
+            .or_else(|| x_forwarded_for_header(self))
+            .or_else(|| self.peer_addr().map(|addr| addr.ip()))
     }
 
     forward! {
@@ -322,38 +438,19 @@ impl Request {
         #[inline]
         pub fn extensions_mut(&mut self) -> &mut http::Extensions;
     }
+
+    #[doc(hidden)]
+    pub fn body_mut(&mut self) -> &mut hyper::Body {
+        self.0.body_mut()
+    }
 }
+
+has_body!(Request);
+has_extensions!(Request);
+has_headers!(Request);
 
 impl From<http::Request<hyper::Body>> for Request {
     fn from(r: http::Request<hyper::Body>) -> Self {
         Request(r)
-    }
-}
-
-impl crate::has_body::sealed::Sealed for Request {}
-impl crate::has_headers::sealed::Sealed for Request {}
-
-impl crate::HasBody for Request {
-    fn body_mut(&mut self) -> &mut hyper::Body {
-        self.0.body_mut()
-    }
-
-    fn content_type(&self) -> Option<mime::Mime> {
-        self.0
-            .headers()
-            .get(http::header::CONTENT_TYPE)
-            .map(|v| v.as_bytes())
-            .and_then(|v| std::str::from_utf8(v).ok())
-            .and_then(|v| mime::Mime::from_str(v).ok())
-    }
-}
-
-impl crate::HasHeaders for Request {
-    fn headers(&self) -> &http::HeaderMap<http::HeaderValue> {
-        self.0.headers()
-    }
-
-    fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue> {
-        self.0.headers_mut()
     }
 }

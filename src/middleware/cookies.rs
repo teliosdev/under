@@ -1,5 +1,5 @@
 use super::{Middleware, Next};
-use crate::{HasHeaders, Request, Response};
+use crate::{Request, Response};
 use cookie::{Cookie, CookieJar};
 use std::pin::Pin;
 
@@ -132,7 +132,7 @@ pub trait CookieExt: self::sealed::Sealed + Sized {
     }
 
     /// Adds the given cookie to the cookie jar.  This is essentially the same
-    /// as [`add_cookie`].
+    /// as [`Self::add_cookie`].
     fn with_cookie(mut self, cookie: Cookie<'static>) -> Self {
         self.add_cookie(cookie);
         self

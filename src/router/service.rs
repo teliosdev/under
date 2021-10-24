@@ -6,7 +6,24 @@ use std::net::SocketAddr;
 use super::*;
 
 impl Router {
+    /// Creates a listen server on the specified address.
+    ///
+    /// The server will prepare the routes, and then start listening for
+    /// incoming connections.
     /// # Errors
+    /// This can fail if the socket address is invalid, or if the socket is
+    /// already in use.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use under::*;
+    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+    /// let mut http = under::http();
+    /// http.at("/").get(|_| async { Response::text("hello, world!") });
+    /// http.listen("0.0.0.0:8080").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn listen(mut self, address: &str) -> Result<(), UnderError> {
         let address: SocketAddr = address
             .parse()
@@ -26,13 +43,16 @@ impl Router {
             }
         }
 
-        let this = RouterService(Arc::pin(self));
+        let this = Arc::pin(self);
 
         hyper::server::Server::bind(&address)
-            .serve(hyper::service::make_service_fn(|_| {
-                let router = this.clone();
-                async move { Ok::<_, std::convert::Infallible>(router) }
-            }))
+            .serve(hyper::service::make_service_fn(
+                |v: &hyper::server::conn::AddrStream| {
+                    let router = this.clone();
+                    let service = RouterService(router, v.remote_addr());
+                    async move { Ok::<_, std::convert::Infallible>(service) }
+                },
+            ))
             .await
             .map_err(UnderError::HyperServer)?;
 
@@ -41,7 +61,7 @@ impl Router {
 }
 
 #[derive(Clone)]
-struct RouterService(Pin<Arc<Router>>);
+struct RouterService(Pin<Arc<Router>>, std::net::SocketAddr);
 
 type RouterFuture<R, E> = Pin<Box<dyn Future<Output = Result<R, E>> + Send + 'static>>;
 
@@ -57,8 +77,10 @@ impl tower::Service<hyper::Request<hyper::Body>> for RouterService {
         std::task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, request: hyper::Request<hyper::Body>) -> Self::Future {
+    fn call(&mut self, mut request: hyper::Request<hyper::Body>) -> Self::Future {
         let this = (self.0).clone();
+        let addr = crate::middleware::PeerAddress(self.1);
+        request.extensions_mut().insert(addr);
         Box::pin(async move { this.as_ref().apply(request.into()).await.map(Into::into) })
     }
 }

@@ -26,6 +26,11 @@ use crate::{Endpoint, Request, Response};
 use std::fmt::Debug;
 use std::pin::Pin;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// We use this to store the address of the peer from the server.  This will be
+/// used to drive [`under::Request::peer_addr`].
+pub(crate) struct PeerAddress(pub(crate) std::net::SocketAddr);
+
 #[derive(Copy, Clone, Debug)]
 /// The next item(s) in the stack.
 ///
