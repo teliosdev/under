@@ -144,6 +144,33 @@ impl Response {
         ))
     }
 
+    /// Creates a temporary redirect to the given location.
+    ///
+    /// # Errors
+    /// This attempts to convert the location into a
+    /// [`http::HeaderValue`]; however, the conversion may fail (for
+    /// reasons specified on [`http::HeaderValue::from_str`]).  It may also
+    /// fail to construct the underlying response.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let response = Response::temporary_redirect("/foo").unwrap();
+    /// assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
+    /// ```
+    pub fn temporary_redirect<T>(location: T) -> Result<Self, http::Error>
+    where
+        http::HeaderValue: TryFrom<T>,
+        <http::HeaderValue as TryFrom<T>>::Error: Into<http::Error>,
+    {
+        Ok(Response(
+            http::Response::builder()
+                .status(http::StatusCode::TEMPORARY_REDIRECT)
+                .header(http::header::LOCATION, location)
+                .body(hyper::Body::empty())?,
+        ))
+    }
+
     /// Creates a response with an empty body and a set status.  The
     /// Content-Type is not set.
     ///

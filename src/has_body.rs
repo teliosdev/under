@@ -47,8 +47,7 @@ macro_rules! has_body {
             /// ```rust
             /// # use under::*;
             /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
-            /// let mut response = Response::default();
-            /// response.with_body("foo");
+            /// let mut response = Response::default().with_body("foo");
             /// let body = hyper::body::to_bytes(response.take_body()).await?;
             /// assert_eq!(&body[..], b"foo");
             /// let body = hyper::body::to_bytes(response.take_body()).await?;

@@ -21,7 +21,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 /// use under::sse::Sender;
 ///
 /// async fn handle(req: Request, mut sender: Sender) -> Result<(), anyhow::Error> {
-///     sender.send(None, "hello, world!").await?;
+///     sender.send(None, "hello, world!", None).await?;
 ///     Ok(())
 /// }
 ///
@@ -46,8 +46,13 @@ where
 /// use under::sse::Sender;
 ///
 /// async fn sse(request: Request, mut sender: Sender) -> Result<(), anyhow::Error> {
-///     sender.send(None, "hello, world!").await?;
+///     sender.send(None, "hello, world!", None).await?;
 ///     Ok(())
+/// }
+///
+/// fn should_upgrade_to_sse(request: &Request) -> bool {
+/// #    return true;
+///     // ...
 /// }
 ///
 /// async fn handle(request: Request) -> Result<Response, anyhow::Error> {
