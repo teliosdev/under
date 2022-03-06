@@ -1,6 +1,8 @@
 pub(crate) mod fragment;
+mod remote;
 
 use self::fragment::{Fragment, FragmentSelect};
+pub use self::remote::RemoteAddress;
 use std::convert::TryFrom;
 use std::str::FromStr;
 
@@ -343,6 +345,7 @@ impl Request {
     ///     .with_local_addr();
     /// assert_eq!(request.remote(), Some(IpAddr::from([127, 0, 0, 1])));
     /// ```
+    #[deprecated(note = "use remote_address instead")]
     pub fn remote(&self) -> Option<std::net::IpAddr> {
         use std::net::IpAddr;
         fn forwarded_header(request: &Request) -> Option<IpAddr> {
@@ -369,6 +372,26 @@ impl Request {
         forwarded_header(self)
             .or_else(|| x_forwarded_for_header(self))
             .or_else(|| self.peer_addr().map(|addr| addr.ip()))
+    }
+
+    /// Returns a builder that can be used to configure how to extract the
+    /// client's IP address from the request.  See [`RemoteAddress`] for more
+    /// information.
+    ///
+    /// ```rust
+    /// # use under::*;
+    /// # use std::net::IpAddr;
+    /// # let mut request = Request::get("/").unwrap().with_local_addr();
+    /// request.set_header("X-Forwarded-For", "1.1.1.1, 2.2.2.2, 3.3.3.3");
+    /// let ip = request.remote_address()
+    ///     .trust_cloudflare_header()
+    ///     .trust_forwarded_for(-1)
+    ///     .trust_peer_address()
+    ///     .apply();
+    /// assert_eq!(ip, Some(IpAddr::from([3, 3, 3, 3])));
+    /// ```
+    pub fn remote_address(&self) -> RemoteAddress<'_> {
+        RemoteAddress::new(self)
     }
 
     forward! {

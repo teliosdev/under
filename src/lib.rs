@@ -57,9 +57,12 @@ pub use self::endpoint::Endpoint;
 pub use self::error::UnderError;
 pub use self::middleware::Middleware;
 pub use self::request::fragment::FragmentSelect;
-pub use self::request::Request;
+pub use self::request::{RemoteAddress, Request};
 pub use self::response::{IntoResponse, Response};
 pub use self::router::{Path, Router};
+
+pub use ::http;
+pub use hyper::Body;
 
 /// A type alias for [`std::result::Result`].
 ///

@@ -117,6 +117,33 @@ impl Response {
         Response::empty_status(http::StatusCode::INTERNAL_SERVER_ERROR)
     }
 
+    /// Creates a redirect (using See Other) to the given location.
+    ///
+    /// # Errors
+    /// This attempts to convert the location into a [`http::HeaderValue`];
+    /// however, the conversion may fail (for reasons specified on
+    /// [`http::HeaderValue::from_str`]).  It may also fail to construct the
+    /// underlying response.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let response = Response::see_other("/foo").unwrap();
+    /// assert_eq!(response.status(), http::StatusCode::SEE_OTHER);
+    /// ```
+    pub fn see_other<T>(location: T) -> Result<Self, http::Error>
+    where
+        http::HeaderValue: TryFrom<T>,
+        <http::HeaderValue as TryFrom<T>>::Error: Into<http::Error>,
+    {
+        Ok(Response(
+            http::Response::builder()
+                .status(http::StatusCode::SEE_OTHER)
+                .header(http::header::LOCATION, location)
+                .body(hyper::Body::empty())?,
+        ))
+    }
+
     /// Creates a permanent redirect to the given location.
     ///
     /// # Errors

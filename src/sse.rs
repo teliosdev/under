@@ -6,6 +6,7 @@
 
 use crate::{Request, Response};
 pub use async_sse::Sender;
+use futures::StreamExt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -68,10 +69,55 @@ where
 /// ```
 pub fn upgrade<F, Fut>(request: Request, handle: F) -> Result<Response, anyhow::Error>
 where
-    F: Fn(Request, Sender) -> Fut + Send + Sync + 'static,
+    F: FnOnce(Request, Sender) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = crate::Result<()>> + Send + 'static,
 {
     handle_sse(request, handle)
+}
+
+/// Performs a heartbeat on an SSE connection.  This allows the server to
+/// ensure that a client is still connected.  This is expected, generally, to
+/// be used in conjunction with either [`endpoint`] or [`upgrade`].  The steam
+/// passed in should be cancellable, and will be cancelled if it does not
+/// resolve within the heartbeat timeout (1s by default).  This is mostly
+/// expected to be used in a loop.
+///
+/// # Examples
+/// ```rust,no_run
+/// # use under::*;
+/// use under::sse::{Sender, stream_heartbeat};
+///
+/// # fn some_stream() -> impl futures::Stream<Item = u64> {
+/// #     futures::stream::iter(vec![1, 2, 3])
+/// # }
+///
+/// async fn sse(request: Request, mut sender: Sender) -> Result<(), anyhow::Error> {
+///     let mut stream = some_stream();
+///     while let Some(event) = stream_heartbeat(&mut sender, &mut stream).await? {
+///         sender.send(None, &format!("{}", event), None).await?;
+///     }
+///     Ok(())
+/// }
+///
+/// let mut http = under::http();
+/// http.at("/sse").get(under::sse::endpoint(sse));
+/// ```
+pub async fn stream_heartbeat<I, S: futures::Stream<Item = I> + Unpin>(
+    sender: &mut Sender,
+    stream: &mut S,
+) -> Result<Option<I>, anyhow::Error> {
+    loop {
+        let time = tokio::time::timeout(tokio::time::Duration::from_secs(1), stream.next()).await;
+
+        match time {
+            Ok(t) => {
+                return Ok(t);
+            }
+            Err(_) => {
+                sender.send("_hb", "", None).await?;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -110,7 +156,7 @@ where
 
 fn handle_sse<F, Fut>(request: Request, handle: F) -> crate::Result
 where
-    F: Fn(Request, Sender) -> Fut + Send + Sync + 'static,
+    F: FnOnce(Request, Sender) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = crate::Result<()>> + Send + 'static,
 {
     let (sender, encoder) = async_sse::encode();
@@ -122,9 +168,7 @@ where
         .with_body(hyper::Body::wrap_stream(stream));
 
     tokio::task::spawn(async move {
-        if let Err(err) = handle(request, sender).await {
-            log::error!("Error handling SSE: {:?}", err);
-        }
+        handle(request, sender).await.ok();
     });
 
     Ok(response)

@@ -17,6 +17,15 @@ macro_rules! has_headers {
                 self.headers().get(key)
             }
 
+            /// Retrieves all potential values for the given header specified
+            /// here.
+            pub fn header_all<H: http::header::AsHeaderName>(
+                &self,
+                key: H,
+            ) -> http::header::GetAll<'_, http::HeaderValue> {
+                self.headers().get_all(key)
+            }
+
             /// Sets the given header to the given value.  If there already was a
             /// header, it is replaced with the given value.
             ///
@@ -31,7 +40,7 @@ macro_rules! has_headers {
             /// let mut response = Response::default();
             /// response.set_header(LOCATION, "/").unwrap();
             /// let location: Option<&[u8]> = response.header(LOCATION).map(|v| v.as_bytes());
-            /// assert_eq!(location, Some(&b"/"[..]));
+            /// assert_eq!(location, Some(b"/".as_ref()));
             /// ```
             pub fn set_header<H, V>(&mut self, key: H, value: V) -> Result<(), http::Error>
             where
@@ -53,6 +62,49 @@ macro_rules! has_headers {
                 http::Error: From<<V as TryInto<http::HeaderValue>>::Error>,
             {
                 self.headers_mut().insert(key, value.try_into()?);
+                Ok(self)
+            }
+
+            /// Sets the given header to the given value.  If there already was a
+            /// header, it is appended with the given value.
+            ///
+            /// # Errors
+            /// If the given value cannot be converted into a header value, this will
+            /// return an error.
+            ///
+            /// # Examples
+            /// ```rust
+            /// # use under::*;
+            /// # use http::header::*;
+            /// let mut response = Response::default();
+            /// response.set_header(LOCATION, "/").unwrap();
+            /// response.add_header(LOCATION, "/hello").unwrap();
+            /// let location: Vec<&[u8]> = response.header_all(LOCATION)
+            ///     .into_iter()
+            ///     .map(|v| v.as_bytes())
+            ///     .collect::<Vec<_>>();
+            /// assert_eq!(location, vec![b"/".as_ref(), b"/hello".as_ref()]);
+            /// ```
+            pub fn add_header<H, V>(&mut self, key: H, value: V) -> Result<(), http::Error>
+            where
+                H: http::header::IntoHeaderName,
+                V: TryInto<http::HeaderValue>,
+                http::Error: From<<V as TryInto<http::HeaderValue>>::Error>,
+            {
+                self.headers_mut().append(key, value.try_into()?);
+                Ok(())
+            }
+
+            /// Sets the given header, consuming `self` and returning a new version
+            /// with the given header.  This can be useful for builder patterns.
+            /// Otherwise, this acts the same as [`Self::add_header`].
+            pub fn with_add_header<H, V>(mut self, key: H, value: V) -> Result<Self, http::Error>
+            where
+                H: http::header::IntoHeaderName,
+                V: TryInto<http::HeaderValue>,
+                http::Error: From<<V as TryInto<http::HeaderValue>>::Error>,
+            {
+                self.headers_mut().append(key, value.try_into()?);
                 Ok(self)
             }
 
