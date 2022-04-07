@@ -41,6 +41,7 @@ mod has_body;
 mod has_headers;
 #[macro_use]
 mod has_extensions;
+mod data;
 pub mod middleware;
 mod request;
 mod response;

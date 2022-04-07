@@ -111,14 +111,42 @@ macro_rules! has_body {
                 Ok(self.with_body(value))
             }
 
+            /// Creates a data stream of the body.  This consumes the body, and
+            /// produces a stream that can then be read from.  A limit must be
+            /// provided, which is the maximum number of bytes that can be read
+            /// from the stream.  For most operations, exceeding this limit
+            /// will cause an error.
+            ///
+            /// # Examples
+            /// ```rust
+            /// # use under::*;
+            /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+            /// let mut response = Response::text("hello, world");
+            /// let data = response.data(1_000_000)
+            ///     .into_text().await?;
+            /// assert_eq!(&data[..], "hello, world");
+            /// # Ok(())
+            /// # }
+            /// ```
+            ///
+            /// ```rust
+            /// # use under::*;
+            /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+            /// let mut response = Response::text("hello, world");
+            /// let data = response.data(1)
+            ///    .into_text().await;
+            /// assert!(data.is_err());
+            /// ```
+            pub fn data(&mut self, limit: u64) -> DataStream {
+                DataStream::new(self.take_body(), limit)
+            }
+
             /// Converts the contents of the body into a byte buffer, which can
             /// then be consumed downstream.
             ///
             /// # Note
-            /// Care needs to be taken if the remote is untrusted. The function doesn’t
-            /// implement any length checks and an malicious peer might make it consume
-            /// arbitrary amounts of memory. Checking the `Content-Length` is a
-            /// possibility, but it is not strictly mandated to be present.
+            /// This provides an implicit limit of 3,000,000 bytes. If the body
+            /// exceeds this limit, then this function will return an error.
             ///
             /// # Examples
             /// ```rust
@@ -130,8 +158,9 @@ macro_rules! has_body {
             /// # Ok(())
             /// # }
             /// ```
-            pub async fn as_bytes(&mut self) -> Result<bytes::Bytes, crate::UnderError> {
-                hyper::body::to_bytes(self.take_body())
+            pub async fn as_bytes(&mut self) -> Result<Vec<u8>, crate::UnderError> {
+                self.data(3_000_000)
+                    .into_bytes()
                     .await
                     .map_err(crate::UnderError::ReadBody)
             }
@@ -144,10 +173,8 @@ macro_rules! has_body {
             /// use-case and a proposed solution.
             ///
             /// # Note
-            /// Care needs to be taken if the remote is untrusted. The function doesn’t
-            /// implement any length checks and an malicious peer might make it consume
-            /// arbitrary amounts of memory. Checking the `Content-Length` is a
-            /// possibility, but it is not strictly mandated to be present.
+            /// This provides an implicit limit of 3,000,000 bytes. If the body
+            /// exceeds this limit, then this function will return an error.
             ///
             /// # Examples
             /// ```rust
@@ -160,10 +187,10 @@ macro_rules! has_body {
             /// # }
             /// ```
             pub async fn as_text(&mut self) -> Result<String, crate::UnderError> {
-                let bytes = self.as_bytes().await?;
-                std::str::from_utf8(&bytes[..])
-                    .map(ToOwned::to_owned)
-                    .map_err(crate::UnderError::TextDeserialization)
+                self.data(3_000_000)
+                    .into_text()
+                    .await
+                    .map_err(crate::UnderError::ReadBody)
             }
 
             /// Parses the contents of the body as JSON, deserializing it into the
@@ -171,10 +198,8 @@ macro_rules! has_body {
             /// for serialization/deserialization, so the charset should not matter.
             ///
             /// # Note
-            /// Care needs to be taken if the remote is untrusted. The function doesn’t
-            /// implement any length checks and an malicious peer might make it consume
-            /// arbitrary amounts of memory. Checking the `Content-Length` is a
-            /// possibility, but it is not strictly mandated to be present.
+            /// This provides an implicit limit of 3,000,000 bytes. If the body
+            /// exceeds this limit, then this function will return an error.
             ///
             /// # Examples
             /// ```rust
@@ -203,10 +228,8 @@ macro_rules! has_body {
             /// use-case and a proposed solution.
             ///
             /// # Note
-            /// Care needs to be taken if the remote is untrusted. The function doesn’t
-            /// implement any length checks and an malicious peer might make it consume
-            /// arbitrary amounts of memory. Checking the `Content-Length` is a
-            /// possibility, but it is not strictly mandated to be present.
+            /// This provides an implicit limit of 3,000,000 bytes. If the body
+            /// exceeds this limit, then this function will return an error.
             ///
             /// # Examples
             /// ```rust
@@ -236,10 +259,8 @@ macro_rules! has_body {
             /// return an error.
             ///
             /// # Note
-            /// Care needs to be taken if the remote is untrusted. The function doesn’t
-            /// implement any length checks and an malicious peer might make it consume
-            /// arbitrary amounts of memory. Checking the `Content-Length` is a
-            /// possibility, but it is not strictly mandated to be present.
+            /// This provides an implicit limit of 3,000,000 bytes. If the body
+            /// exceeds this limit, then this function will return an error.
             ///
             /// # Examples
             /// ```rust

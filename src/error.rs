@@ -14,7 +14,7 @@ pub enum UnderError {
     /// Generated when attempting to read the body of a request, or response,
     /// and failing.
     #[error("could not read the body of a request or response")]
-    ReadBody(#[source] hyper::Error),
+    ReadBody(#[source] std::io::Error),
     /// Generated when attempting to deserialize the body of a request or
     /// response from JSON.
     #[error("could not deserialize the body of a request or response from JSON")]

@@ -3,6 +3,7 @@ mod remote;
 
 use self::fragment::{Fragment, FragmentSelect};
 pub use self::remote::RemoteAddress;
+use crate::data::DataStream;
 use std::convert::TryFrom;
 use std::str::FromStr;
 

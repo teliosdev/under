@@ -1,3 +1,4 @@
+use crate::data::DataStream;
 use std::convert::TryFrom;
 
 #[derive(Debug)]
