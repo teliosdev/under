@@ -113,20 +113,27 @@ mod reader {
 
     use bytes::Buf;
     use futures::Stream;
-    use tokio::io::{AsyncBufRead, AsyncRead, ReadBuf};
+    use std::io::Cursor;
+    use tokio::io::{AsyncRead, ReadBuf};
+
+    enum State {
+        Pending,
+        Done,
+        Partial(Cursor<hyper::body::Bytes>),
+    }
 
     #[pin_project::pin_project]
     pub struct StreamReader {
         #[pin]
         inner: hyper::Body,
-        buffer: Option<hyper::body::Bytes>,
+        state: State,
     }
 
     impl<'r> From<hyper::Body> for StreamReader {
         fn from(body: hyper::Body) -> Self {
             Self {
                 inner: body,
-                buffer: None,
+                state: State::Pending,
             }
         }
     }
@@ -137,60 +144,67 @@ mod reader {
             cx: &mut Context<'_>,
             buf: &mut ReadBuf<'_>,
         ) -> Poll<io::Result<()>> {
-            if buf.remaining() == 0 {
-                return Poll::Ready(Ok(()));
-            }
-
-            let inner_buf = match self.as_mut().poll_fill_buf(cx) {
-                Poll::Ready(Ok(buf)) => buf,
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
-            };
-
-            let len = std::cmp::min(inner_buf.len(), buf.remaining());
-            buf.put_slice(&inner_buf[..len]);
-            self.consume(len);
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    impl AsyncBufRead for StreamReader {
-        fn poll_fill_buf(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-        ) -> Poll<io::Result<&[u8]>> {
             loop {
-                let has_l = self
-                    .as_ref()
-                    .buffer
-                    .as_ref()
-                    .map(|v| v.remaining() > 0)
-                    .unwrap_or(false);
-                if has_l {
-                    return Poll::Ready(Ok(self.project().buffer.as_ref().unwrap().chunk()));
-                } else {
-                    match self.as_mut().project().inner.poll_next(cx) {
-                        Poll::Ready(Some(Ok(bytes))) => {
-                            self.as_mut().buffer = Some(bytes);
+                self.state = match self.state {
+                    State::Pending => {
+                        match futures::ready!(Pin::new(&mut self.inner).poll_next(cx)) {
+                            Some(Err(e)) => {
+                                return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)))
+                            }
+                            Some(Ok(b)) => State::Partial(Cursor::new(b)),
+                            None => State::Done,
                         }
-                        Poll::Ready(Some(Err(err))) => {
-                            return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err)));
+                    }
+                    State::Done => return Poll::Ready(Ok(())),
+                    State::Partial(ref mut cursor) => {
+                        let remaining = cursor.remaining();
+                        match futures::ready!(Pin::new(cursor).poll_read(cx, buf)) {
+                            Ok(()) if remaining == buf.remaining() => State::Pending,
+                            result => return Poll::Ready(result),
                         }
-                        Poll::Ready(None) => {
-                            return Poll::Ready(Ok(&[]));
-                        }
-                        Poll::Pending => {}
                     }
                 }
             }
         }
-
-        fn consume(self: Pin<&mut Self>, amt: usize) {
-            if amt > 0 {
-                self.project().buffer.as_mut().unwrap().advance(amt);
-            }
-        }
     }
+
+    // impl AsyncBufRead for StreamReader {
+    //     fn poll_fill_buf(
+    //         mut self: Pin<&mut Self>,
+    //         cx: &mut Context<'_>,
+    //     ) -> Poll<io::Result<&[u8]>> {
+    //         loop {
+    //             let has_l = self
+    //                 .as_ref()
+    //                 .buffer
+    //                 .as_ref()
+    //                 .map(|v| v.remaining() > 0)
+    //                 .unwrap_or(false);
+    //             if has_l {
+    //                 return Poll::Ready(Ok(self.project().buffer.as_ref().unwrap().chunk()));
+    //             } else {
+    //                 match self.as_mut().project().inner.poll_next(cx) {
+    //                     Poll::Ready(Some(Ok(bytes))) => {
+    //                         self.as_mut().buffer = Some(bytes);
+    //                     }
+    //                     Poll::Ready(Some(Err(err))) => {
+    //                         return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err)));
+    //                     }
+    //                     Poll::Ready(None) => {
+    //                         return Poll::Ready(Ok(&[]));
+    //                     }
+    //                     Poll::Pending => {}
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     fn consume(self: Pin<&mut Self>, amt: usize) {
+    //         if amt > 0 {
+    //             self.project().buffer.as_mut().unwrap().advance(amt);
+    //         }
+    //     }
+    // }
 
     #[cfg(test)]
     mod tests {
