@@ -136,6 +136,8 @@ macro_rules! has_body {
             /// let data = response.data(1)
             ///    .into_text().await;
             /// assert!(data.is_err());
+            /// # Ok(())
+            /// # }
             /// ```
             pub fn data(&mut self, limit: u64) -> DataStream {
                 DataStream::new(self.take_body(), limit)
@@ -219,6 +221,8 @@ macro_rules! has_body {
                 serde_json::from_slice(&bytes[..]).map_err(crate::UnderError::JsonDeserialization)
             }
 
+            #[cfg(feature = "from_form")]
+            #[doc(cfg(feature = "from_form"))]
             /// Parses the contents of the body as x-www-form-urlencoded,
             /// deserializaing it into the given value.  This
             /// assumes that the request body is already UTF-8, or a UTF-8 compatible
@@ -234,22 +238,25 @@ macro_rules! has_body {
             /// # Examples
             /// ```rust
             /// # use under::*;
+            /// # use std::collections::HashMap;
             /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
             /// let mut response = Response::text(r#"hello=world"#);
-            /// let body = response.as_form::<serde_json::Value>().await?;
-            /// let expected = serde_json::json!({ "hello": "world" });
-            /// assert_eq!(body, expected);
+            /// let body = response.as_form::<HashMap<String, Vec<String>>>().await?;
+            /// assert_eq!(&body["hello"][..], &["world".to_string()]);
+            /// assert_eq!(body.len(), 1);
             /// # Ok(())
             /// # }
             /// ```
-            pub async fn as_form<T: serde::de::DeserializeOwned>(
+            pub async fn as_form<T: crate::from_form::FromForm>(
                 &mut self,
             ) -> Result<T, crate::UnderError> {
                 let bytes = self.as_bytes().await?;
-                serde_urlencoded::from_bytes(&bytes[..])
-                    .map_err(crate::UnderError::FormDeserialization)
+                let items = form_urlencoded::parse(&bytes);
+                T::from_form(items).map_err(crate::UnderError::FormDeserialization)
             }
 
+            #[cfg(feature = "from_form")]
+            #[doc(cfg(feature = "from_form"))]
             /// Attempts to parse the body based off of the content-type header;
             /// currently, it can sniff either `application/json` or
             /// `application/x-www-form-urlencoded`.  If the content-type is either of
@@ -265,17 +272,22 @@ macro_rules! has_body {
             /// # Examples
             /// ```rust
             /// # use under::*;
+            /// #[derive(Debug, serde::Deserialize, FromForm, PartialEq, Eq)]
+            /// struct Form {
+            ///    hello: String,
+            /// }
+            ///
             /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
             /// let mut response = Response::text(r#"{"hello": "world"}"#);
             /// response
             ///     .set_header(http::header::CONTENT_TYPE, "application/json")?;
-            /// let body = response.as_sniff::<serde_json::Value>().await?;
-            /// let expected = serde_json::json!({ "hello": "world" });
+            /// let body = response.as_sniff::<Form>().await?;
+            /// let expected = Form { hello: "world".to_string() };
             /// assert_eq!(body, expected);
             /// # Ok(())
             /// # }
             /// ```
-            pub async fn as_sniff<T: serde::de::DeserializeOwned>(
+            pub async fn as_sniff<T: serde::de::DeserializeOwned + crate::from_form::FromForm>(
                 &mut self,
             ) -> Result<T, crate::UnderError> {
                 let ctype = self.content_type();

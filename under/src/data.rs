@@ -80,17 +80,14 @@ impl DataStream {
     /// This streams from the body into the provided buffer, and returns the
     /// resulting buffer.  If the body of the request is too large to fit into
     /// the limit of the buffer, then an error is returned.
-    pub async fn into_text(mut self) -> std::io::Result<String> {
-        let mut string = String::new();
-        self.stream.read_to_string(&mut string).await?;
-        if !self.limit_exceeded().await? {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::OutOfMemory,
-                anyhow::Error::msg("body too large"),
-            ))
-        } else {
-            Ok(string)
-        }
+    pub async fn into_text(self) -> std::io::Result<String> {
+        let bytes = self.into_bytes().await?;
+        String::from_utf8(bytes).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                anyhow::Error::msg("stream did not contain valid UTF-8"),
+            )
+        })
     }
 }
 
@@ -167,44 +164,6 @@ mod reader {
             }
         }
     }
-
-    // impl AsyncBufRead for StreamReader {
-    //     fn poll_fill_buf(
-    //         mut self: Pin<&mut Self>,
-    //         cx: &mut Context<'_>,
-    //     ) -> Poll<io::Result<&[u8]>> {
-    //         loop {
-    //             let has_l = self
-    //                 .as_ref()
-    //                 .buffer
-    //                 .as_ref()
-    //                 .map(|v| v.remaining() > 0)
-    //                 .unwrap_or(false);
-    //             if has_l {
-    //                 return Poll::Ready(Ok(self.project().buffer.as_ref().unwrap().chunk()));
-    //             } else {
-    //                 match self.as_mut().project().inner.poll_next(cx) {
-    //                     Poll::Ready(Some(Ok(bytes))) => {
-    //                         self.as_mut().buffer = Some(bytes);
-    //                     }
-    //                     Poll::Ready(Some(Err(err))) => {
-    //                         return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, err)));
-    //                     }
-    //                     Poll::Ready(None) => {
-    //                         return Poll::Ready(Ok(&[]));
-    //                     }
-    //                     Poll::Pending => {}
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     fn consume(self: Pin<&mut Self>, amt: usize) {
-    //         if amt > 0 {
-    //             self.project().buffer.as_mut().unwrap().advance(amt);
-    //         }
-    //     }
-    // }
 
     #[cfg(test)]
     mod tests {

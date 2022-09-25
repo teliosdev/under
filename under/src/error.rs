@@ -23,10 +23,12 @@ pub enum UnderError {
     /// response from text.
     #[error("could not deserialize the body of a request or response from utf-8")]
     TextDeserialization(#[source] std::str::Utf8Error),
+    #[cfg(feature = "from_form")]
+    #[doc(cfg(feature = "from_form"))]
     /// Generated when attempting to deserialize the body of a request or
     /// response from x-www-form-urlencoded.
     #[error("could not deserialize the body of a request or response from urlencoded")]
-    FormDeserialization(#[source] serde_urlencoded::de::Error),
+    FormDeserialization(#[source] crate::from_form::FromFormError),
     /// Generated when attempting to sniff the request or response of its
     /// content type.
     #[error("the content-type of the request was invalid")]

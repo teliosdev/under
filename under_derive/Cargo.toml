@@ -1,0 +1,26 @@
+[package]
+name = "under_derive"
+description = "Macros for the under package."
+version = "0.2.2"
+authors = ["Jeremy Rodi <me@telios.dev>"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/medcat/under"
+readme = "README.md"
+keywords = ["async", "http", "web", "server", "framework"]
+categories = ["web-programming::http-server"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "under_derive"
+proc-macro = true
+
+[dependencies]
+heck = "0.4.0"
+proc-macro2 = "1.0.36"
+quote = "1.0.15"
+
+[dependencies.syn]
+version = "1.0.86"
+features = ['extra-traits']

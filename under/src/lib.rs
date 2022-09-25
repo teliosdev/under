@@ -42,6 +42,9 @@ mod has_headers;
 #[macro_use]
 mod has_extensions;
 mod data;
+#[cfg(feature = "from_form")]
+#[doc(hidden)]
+pub mod from_form;
 pub mod middleware;
 mod request;
 mod response;
@@ -53,6 +56,17 @@ pub mod sse;
 #[cfg(feature = "cookie")]
 #[doc(cfg(feature = "cookie"))]
 pub use cookie::{Cookie, CookieBuilder, CookieJar};
+
+#[cfg(feature = "from_form")]
+#[doc(cfg(feature = "from_form"))]
+pub use from_form::{FromForm, FromFormError, FromFormMultiple, FromFormValue};
+
+#[cfg(feature = "under_derive")]
+#[allow(unused_imports)]
+#[macro_use]
+extern crate under_derive;
+#[cfg(feature = "under_derive")]
+pub use under_derive::*;
 
 pub use self::endpoint::Endpoint;
 pub use self::error::UnderError;
