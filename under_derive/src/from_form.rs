@@ -15,9 +15,9 @@ pub(super) fn from_form(s: syn::ItemStruct) -> Result<proc_macro2::TokenStream, 
         let variable_name = &f.variable_name;
         let field_ty = &f.r#type;
         if f.multiple {
-            quote::quote!(let mut #variable_name: #field_ty = <#field_ty as ::std::default::Default>::default();)
+            quote::quote_spanned!(Span::mixed_site()=> let mut #variable_name: #field_ty = <#field_ty as ::std::default::Default>::default();)
         } else {
-            quote::quote!(let mut #variable_name: Option<#field_ty> = None;)
+            quote::quote_spanned!(Span::mixed_site()=> let mut #variable_name: Option<#field_ty> = None;)
         }
     });
 
@@ -27,30 +27,45 @@ pub(super) fn from_form(s: syn::ItemStruct) -> Result<proc_macro2::TokenStream, 
         let form_key = &f.form_key;
         let field_ty = &f.r#type;
 
-        let raw_ty = quote::quote!(::std::any::type_name::<#field_ty>());
+        let raw_ty = quote::quote_spanned!(Span::mixed_site()=> ::std::any::type_name::<#field_ty>());
 
         let acceptable_form_keys = f.aliases.iter().map(|a| {
-            quote::quote!(#a)
-        }).chain(std::iter::once(quote::quote!(#form_key)));
+            quote::quote_spanned!(Span::mixed_site()=> #a)
+        }).chain(std::iter::once(quote::quote_spanned!(Span::mixed_site()=> #form_key)));
 
-        if f.multiple {
-            quote::quote_spanned! {Span::mixed_site()=>
-                #(#acceptable_form_keys)|* => {
-                    <#field_ty as ::under::from_form::FromFormMultiple>::push(&mut #variable_name, __value.as_ref())
-                        .map_err(|e| ::under::from_form::FromFormError::InvalidFormat(#struct_name_s, #raw_ty, e.into()))?;
+        match f.parse_with.as_ref() {
+            Some(parse_with) if f.multiple => {
+                quote::quote_spanned! {Span::mixed_site()=>
+                    #(#acceptable_form_keys)|* => {
+                        let value = #parse_with(__value.as_ref())
+                            .map_err(|e| ::under::from_form::FromFormError::InvalidFormat(#struct_name_s, #raw_ty, e.into()))?;
+                        <#field_ty as ::under::from_form::FromFormMultiple>::push(&mut #variable_name, value);
+                    }
                 }
             }
-        } else if let Some(ref parse_with) = f.parse_with {
-            quote::quote_spanned! {Span::mixed_site()=>
-                #(#acceptable_form_keys)|* => {
-                    #variable_name = Some(#parse_with(__value.as_ref()));
+            Some(parse_with) => {
+                quote::quote_spanned! {Span::mixed_site()=>
+                    #(#acceptable_form_keys)|* => {
+                        #variable_name = Some(#parse_with(__value.as_ref())
+                            .map_err(|e| ::under::from_form::FromFormError::InvalidFormat(#struct_name_s, #raw_ty, e.into()))?);
+                    }
                 }
             }
-        } else {
-            quote::quote_spanned! {Span::mixed_site()=>
-                #(#acceptable_form_keys)|* => {
-                    #variable_name = Some(<#field_ty as ::under::from_form::FromFormValue>::from_form_value(__value.as_ref())
-                        .map_err(|e| ::under::from_form::FromFormError::InvalidFormat(#struct_name_s, #raw_ty, e.into()))?);
+            None if f.multiple => {
+                quote::quote_spanned! {Span::mixed_site()=>
+                    #(#acceptable_form_keys)|* => {
+                        let value = <<#field_ty as ::under::from_form::FromFormMultiple>::Item as ::under::from_form::FromFormValue>::from_form_value(__value.as_ref())
+                            .map_err(|e| ::under::from_form::FromFormError::InvalidFormat(#struct_name_s, #raw_ty, e.into()))?;
+                        <#field_ty as ::under::from_form::FromFormMultiple>::push(&mut #variable_name, value);
+                    }
+                }
+            }
+            None => {
+                quote::quote_spanned! {Span::mixed_site()=>
+                    #(#acceptable_form_keys)|* => {
+                        #variable_name = Some(<#field_ty as ::under::from_form::FromFormValue>::from_form_value(__value.as_ref())
+                            .map_err(|e| ::under::from_form::FromFormError::InvalidFormat(#struct_name_s, #raw_ty, e.into()))?);
+                    }
                 }
             }
         }
@@ -60,38 +75,38 @@ pub(super) fn from_form(s: syn::ItemStruct) -> Result<proc_macro2::TokenStream, 
         let variable_name = &f.variable_name;
         let prefix = if f.field.ident.is_some() {
             let n = &f.field.ident;
-            quote::quote!(#n: )
+            quote::quote_spanned!(Span::mixed_site()=> #n: )
         } else {
-            quote::quote!()
+            quote::quote_spanned!(Span::mixed_site()=> )
         };
         if f.multiple {
-            quote::quote!(#prefix #variable_name)
+            quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name)
         } else if f.optional {
-            quote::quote!(#prefix #variable_name)
+            quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name)
         } else {
             match f.default {
                 FormFieldDefaultValue::Yes => {
-                    quote::quote!(#prefix #variable_name.unwrap_or_default())
+                    quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name.unwrap_or_default())
                 }
                 FormFieldDefaultValue::Custom(ref v) => {
-                    quote::quote!(#prefix #variable_name.unwrap_or_else(#v))
+                    quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name.unwrap_or_else(#v))
                 }
                 FormFieldDefaultValue::No => {
                     let struct_name_s = ident_lit(&f.struct_name.to_string(), f.struct_name.span());
-                    quote::quote!(#prefix #variable_name.ok_or_else(|| ::under::from_form::FromFormError::MissingField(#struct_name_s))?)
+                    quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name.ok_or_else(|| ::under::from_form::FromFormError::MissingField(#struct_name_s))?)
                 }
             }
         }
     });
 
     let struct_composition = if is_named(&s.fields) {
-        quote::quote! {
+        quote::quote_spanned! {Span::mixed_site()=>
             #name {
                 #(#final_assignment),*
             }
         }
     } else {
-        quote::quote! {
+        quote::quote_spanned! {Span::mixed_site()=>
             #name (
                 #(#final_assignment),*
             )
@@ -106,7 +121,6 @@ pub(super) fn from_form(s: syn::ItemStruct) -> Result<proc_macro2::TokenStream, 
                 I: Iterator<Item = (K, V)>,
                 K: AsRef<str> + 'f,
                 V: AsRef<str> + 'f,
-
             {
                 #( #field_definitions )*
 
@@ -299,9 +313,14 @@ impl<'f> FormFieldMeta<'f> {
         let variable_name = field
             .ident
             .clone()
-            .map(|n| syn::Ident::new(&format!("__field_{}", n), n.span()))
+            .map(|n| {
+                syn::Ident::new(
+                    &format!("__field_{}", n),
+                    n.span().resolved_at(Span::mixed_site()),
+                )
+            })
             .unwrap_or_else(|| {
-                syn::Ident::new(&format!("__field_{}", i), proc_macro2::Span::call_site())
+                syn::Ident::new(&format!("__field_{}", i), proc_macro2::Span::mixed_site())
             });
         let struct_name = field.ident.clone().unwrap_or_else(|| variable_name.clone());
 
@@ -336,7 +355,7 @@ impl<'f> FormFieldMeta<'f> {
             _ => field.ty.clone(),
         };
 
-        Ok(dbg!(FormFieldMeta {
+        Ok(FormFieldMeta {
             field,
             variable_name,
             struct_name,
@@ -356,7 +375,7 @@ impl<'f> FormFieldMeta<'f> {
             optional,
             parse_with,
             default,
-        }))
+        })
     }
 }
 

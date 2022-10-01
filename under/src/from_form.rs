@@ -53,7 +53,8 @@ pub trait FromForm: Sized {
 impl<V> FromForm for std::collections::HashMap<String, V>
 where
     V: for<'f> FromFormMultiple<'f>,
-    for<'a> <<V as FromFormMultiple<'a>>::Item as FromFormValue<'a>>::Error: Into<anyhow::Error>,
+    for<'f> <V as FromFormMultiple<'f>>::Item: FromFormValue<'f>,
+    for<'f> <<V as FromFormMultiple<'f>>::Item as FromFormValue<'f>>::Error: Into<anyhow::Error>,
 {
     fn from_form<'f, I, K, VV>(form: I) -> Result<Self, FromFormError>
     where
@@ -64,12 +65,10 @@ where
         let mut map = std::collections::HashMap::new();
         for (key, value) in form {
             let key = key.as_ref().to_string();
-            map.entry(key)
-                .or_insert_with(V::default)
-                .push(value.as_ref())
-                .map_err(|e| {
-                    FromFormError::InvalidFormat("-", std::any::type_name::<V::Item>(), e.into())
-                })?;
+            let value = V::Item::from_form_value(value.as_ref()).map_err(|e| {
+                FromFormError::InvalidFormat("-", std::any::type_name::<V::Item>(), e.into())
+            })?;
+            map.entry(key).or_insert_with(V::default).push(value);
         }
 
         Ok(map)
@@ -102,18 +101,18 @@ pub trait FromFormValue<'f>: Sized {
 /// `from_form` method that correctly parses the types from the form.  This
 /// handles types that expect multiple key-value pairs with the same keys,
 /// such as for arrays.  As such, this trait is automatically implemented for
-/// any type `T` such that `T: Default + Extend<V> + IntoIterator<Item = V>`,
-/// where `V: FromFormValue<'f>`.  This should cover all cases, and you should
-/// not need to implement (or use) this.
+/// any type `T` such that `T: Default + Extend<V> + IntoIterator<Item = V>`.
+/// This should cover all cases, and you should not need to implement (or use)
+/// this.
 #[doc(cfg(feature = "from_form"))]
 pub trait FromFormMultiple<'f>: Sized {
     /// The item type that is being collected into `Self`.
-    type Item: FromFormValue<'f>;
+    type Item;
 
     /// Given for a key-value pair, adds the value to `self`.  This also has
     /// the side effect of parsing the item into the correct type (using its
     /// corresponding `FromFormValue` implementation).
-    fn push(&mut self, item: &'f str) -> Result<(), <Self::Item as FromFormValue<'f>>::Error>;
+    fn push(&mut self, item: Self::Item);
 
     /// Return the default (empty) collection of `Self`.  This should just be
     /// [`Default::default`].
@@ -123,13 +122,11 @@ pub trait FromFormMultiple<'f>: Sized {
 impl<'f, V, T> FromFormMultiple<'f> for T
 where
     T: Default + Extend<V> + IntoIterator<Item = V>,
-    V: FromFormValue<'f>,
 {
     type Item = V;
 
-    fn push(&mut self, item: &'f str) -> Result<(), V::Error> {
-        self.extend(Some(V::from_form_value(item)?));
-        Ok(())
+    fn push(&mut self, item: Self::Item) {
+        self.extend(Some(item));
     }
 
     fn default() -> Self {
