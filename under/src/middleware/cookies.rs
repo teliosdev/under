@@ -1,5 +1,5 @@
 use super::{Middleware, Next};
-use crate::{Request, Response};
+use crate::{HttpEntity, Request, Response};
 use cookie::{Cookie, CookieJar};
 use std::pin::Pin;
 

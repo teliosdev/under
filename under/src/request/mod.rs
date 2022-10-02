@@ -3,7 +3,7 @@ mod remote;
 
 use self::fragment::{Fragment, FragmentSelect};
 pub use self::remote::RemoteAddress;
-use crate::data::DataStream;
+use crate::HttpEntity;
 use std::convert::TryFrom;
 use std::str::FromStr;
 
@@ -199,7 +199,7 @@ impl Request {
     /// http.prepare();
     /// let mut response = http.handle(Request::get("/buy/3")?).await?;
     /// assert_eq!(response.status(), http::StatusCode::OK);
-    /// let body = response.as_text().await?;
+    /// let body = response.data(512).into_text().await?;
     /// assert_eq!(body, "you bought 3 coconuts");
     /// # Ok(())
     /// # }
@@ -226,7 +226,7 @@ impl Request {
     /// http.prepare();
     /// let mut response = http.handle(Request::get("/hello/foo")?).await?;
     /// assert_eq!(response.status(), http::StatusCode::OK);
-    /// let body = response.as_text().await?;
+    /// let body = response.data(512).into_text().await?;
     /// assert_eq!(body, "hello, foo");
     /// # Ok(())
     /// # }
@@ -253,6 +253,8 @@ impl Request {
     /// let user: User = request.query().unwrap();
     /// assert_eq!(user.id, 1);
     /// ```
+    #[cfg(feature = "serde")]
+    #[doc(cfg(feature = "serde"))]
     pub fn query<'q, S: serde::Deserialize<'q>>(&'q self) -> Option<S> {
         self.uri()
             .query()
@@ -395,6 +397,120 @@ impl Request {
         RemoteAddress::new(self)
     }
 
+    /// Returns state information provided by the
+    /// [`crate::middleware::StateMiddleware`] middleware.  This is a
+    /// shortcut to retrieving the [`crate::middleware::State`]
+    /// extension from the request.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// use under::middleware::State;
+    /// let mut request = Request::get("/").unwrap();
+    /// request.extensions_mut().insert(State(123u32));
+    /// assert_eq!(request.state::<u32>(), Some(&123u32));
+    /// ```
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.ext::<crate::middleware::State<T>>().map(|v| &v.0)
+    }
+
+    /// Retrieves a specific extension from the extensions map.  This is
+    /// the same as calling [`Self::extensions`].`get` wit the given
+    /// type parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut request = Request::get("/").unwrap();
+    /// assert_eq!(request.ext::<u32>(), None);
+    /// ```
+    pub fn ext<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.extensions().get::<T>()
+    }
+
+    /// Retrieves a mutable reference to the specific extension from the
+    /// extensions map.  This is the same as calling
+    /// [`Self::extensions_mut`].`get_mut` with the given type
+    /// parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut request = Request::get("/").unwrap();
+    /// assert_eq!(request.ext_mut::<u32>(), None);
+    /// ```
+    pub fn ext_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+        self.extensions_mut().get_mut::<T>()
+    }
+
+    /// Sets the value of the specific extension in the extensions map.
+    /// This is the same as calling [`Self::extensions_mut`].`insert`
+    /// with the given parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut request = Request::get("/").unwrap();
+    /// request.set_ext(123u32);
+    /// assert_eq!(request.ext::<u32>(), Some(&123u32));
+    /// ```
+    pub fn set_ext<T: Send + Sync + 'static>(&mut self, value: T) -> &mut Self {
+        self.extensions_mut().insert(value);
+        self
+    }
+
+    /// Sets the value of the specific extension in the extensions map,
+    /// consuming `self`, and then returning the new value.  This is
+    /// the same as calling [`Self::set_ext`], but it consumes `self`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let request = Request::get("/").unwrap();
+    /// let request = request.with_ext(123u32);
+    /// assert_eq!(request.ext::<u32>(), Some(&123u32));
+    /// ```
+    pub fn with_ext<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.set_ext(value);
+        self
+    }
+
+    /// Removes the specific extension from the extensions map.  This is
+    /// the same as calling [`Self::extensions_mut`].`remove` with the
+    /// given type parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut request = Request::get("/").unwrap()
+    ///     .with_ext(123u32);
+    /// assert_eq!(request.ext::<u32>(), Some(&123u32));
+    /// request.remove_ext::<u32>();
+    /// assert_eq!(request.ext::<u32>(), None);
+    /// ```
+    pub fn remove_ext<T: Send + Sync + 'static>(&mut self) -> Option<T> {
+        self.extensions_mut().remove::<T>()
+    }
+
+    /// Removes the specific extension from the extensions map,
+    /// consuming `self`, and then returning the removed value.  This
+    /// is the same as calling [`Self::remove_ext`], but it consumes
+    /// `self`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let request = Request::get("/").unwrap()
+    ///     .with_ext(123u32);
+    /// assert_eq!(request.ext::<u32>(), Some(&123u32));
+    /// let request = request.without_ext::<u32>();
+    /// assert_eq!(request.ext::<u32>(), None);
+    /// ```
+    pub fn without_ext<T: Send + Sync + 'static>(mut self) -> Self {
+        self.remove_ext::<T>();
+        self
+    }
+
     forward! {
         /// Returns a reference to the associated URI.
         ///
@@ -416,30 +532,6 @@ impl Request {
         /// ```
         #[inline]
         pub fn method(&self) -> &http::Method;
-        /// Returns a reference to the associated header field map.
-        ///
-        /// # Examples
-        ///
-        /// ```rust
-        /// # use under::*;
-        /// let request = Request::get("/").unwrap();
-        /// assert!(request.headers().is_empty());
-        /// ```
-        #[inline]
-        pub fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
-        /// Returns a mutable reference to the associated header field map.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// # use under::*;
-        /// # use http::header::*;
-        /// let mut request = Request::get("/").unwrap();
-        /// request.headers_mut().insert(HOST, HeaderValue::from_static("world"));
-        /// assert!(!request.headers().is_empty());
-        /// ```
-        #[inline]
-        pub fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue>;
         /// Returns a reference to the associated extensions.
         ///
         /// # Examples
@@ -462,16 +554,23 @@ impl Request {
         #[inline]
         pub fn extensions_mut(&mut self) -> &mut http::Extensions;
     }
-
-    #[doc(hidden)]
-    pub fn body_mut(&mut self) -> &mut hyper::Body {
-        self.0.body_mut()
-    }
 }
 
-has_body!(Request);
-has_extensions!(Request);
-has_headers!(Request);
+impl crate::HttpEntity for Request {
+    #[inline]
+    fn body_mut(&mut self) -> &mut hyper::Body {
+        self.0.body_mut()
+    }
+    #[inline]
+    fn headers(&self) -> &http::HeaderMap {
+        self.0.headers()
+    }
+
+    #[inline]
+    fn headers_mut(&mut self) -> &mut http::HeaderMap {
+        self.0.headers_mut()
+    }
+}
 
 impl From<http::Request<hyper::Body>> for Request {
     fn from(r: http::Request<hyper::Body>) -> Self {

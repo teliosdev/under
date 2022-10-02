@@ -1,3 +1,4 @@
+use crate::HttpEntity;
 use std::borrow::Cow;
 use std::net::IpAddr;
 

@@ -34,13 +34,9 @@ extern crate async_trait;
 
 mod endpoint;
 pub mod endpoints;
+mod entity;
 mod error;
-#[macro_use]
-mod has_body;
-#[macro_use]
-mod has_headers;
-#[macro_use]
-mod has_extensions;
+
 mod data;
 #[cfg(feature = "from_form")]
 #[doc(hidden)]
@@ -68,7 +64,9 @@ extern crate under_derive;
 #[cfg(feature = "under_derive")]
 pub use under_derive::*;
 
+pub use self::data::{DataStream, DataTransfer};
 pub use self::endpoint::Endpoint;
+pub use self::entity::HttpEntity;
 pub use self::error::UnderError;
 pub use self::middleware::Middleware;
 pub use self::request::fragment::FragmentSelect;

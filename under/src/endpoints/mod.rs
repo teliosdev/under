@@ -141,10 +141,10 @@ where
 ///     .then(endpoint));
 /// http.prepare();
 /// let mut response = http.handle(Request::get("/foo")?).await?;
-/// let body = response.as_text().await?;
+/// let body = response.data(512).into_text().await?;
 /// assert_eq!(body, "hello, world");
 /// let mut response = http.handle(Request::get("/bar")?).await?;
-/// let body = response.as_text().await?;
+/// let body = response.data(512).into_text().await?;
 /// assert_eq!(body, "hello, bar");
 /// # Ok(())
 /// # }

@@ -15,10 +15,24 @@ pub enum UnderError {
     /// and failing.
     #[error("could not read the body of a request or response")]
     ReadBody(#[source] std::io::Error),
+    #[cfg(feature = "json")]
+    #[doc(cfg(feature = "json"))]
     /// Generated when attempting to deserialize the body of a request or
     /// response from JSON.
     #[error("could not deserialize the body of a request or response from JSON")]
     JsonDeserialization(#[source] serde_json::Error),
+    #[cfg(feature = "cbor")]
+    #[doc(cfg(feature = "cbor"))]
+    /// Generated when attempting to deserialize the body of a request or
+    /// response from CBOR.
+    #[error("could not deserialize the body of a request or response from CBOR")]
+    CborDeserialization(#[source] anyhow::Error),
+    #[cfg(feature = "msgpack")]
+    #[doc(cfg(feature = "msgpack"))]
+    /// Generated when attempting to deserialize the body of a request or
+    /// response from MessagePack.
+    #[error("could not deserialize the body of a request or response from MessagePack")]
+    MsgpackDeserialization(#[source] rmp_serde::decode::Error),
     /// Generated when attempting to deserialize the body of a request or
     /// response from text.
     #[error("could not deserialize the body of a request or response from utf-8")]
@@ -32,5 +46,5 @@ pub enum UnderError {
     /// Generated when attempting to sniff the request or response of its
     /// content type.
     #[error("the content-type of the request was invalid")]
-    InvalidContentType(Option<mime::Mime>),
+    UnsupportedMediaType(Option<mime::Mime>),
 }

@@ -1,4 +1,3 @@
-use crate::data::DataStream;
 use std::convert::TryFrom;
 
 #[derive(Debug)]
@@ -12,7 +11,7 @@ use std::convert::TryFrom;
 /// # Examples
 ///
 /// ```rust
-/// use under::{Request, Response};
+/// use under::{Request, Response, HttpEntity};
 ///
 /// // Here, we're defining an endpoint for our server.
 /// async fn handle_get(request: Request) -> Result<Response, anyhow::Error> {
@@ -29,7 +28,7 @@ use std::convert::TryFrom;
 /// http.prepare();
 /// let mut response = http.handle(Request::get("/hello")?).await?;
 /// assert_eq!(response.status(), http::StatusCode::OK);
-/// let body = response.as_text().await?;
+/// let body = response.data(512).into_text().await?;
 /// assert_eq!(body, "hello, world");
 /// # Ok(())
 /// # }
@@ -247,6 +246,7 @@ impl Response {
     /// let response = Response::json(&serde_json::json!({ "hello": "world" }))?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    #[cfg(feature = "json")]
     pub fn json<V: serde::Serialize>(body: &V) -> Result<Self, serde_json::Error> {
         let value = serde_json::to_string(body)?;
         Ok(Response(
@@ -287,9 +287,118 @@ impl Response {
         Response(self.0)
     }
 
-    #[doc(hidden)]
-    pub fn body_mut(&mut self) -> &mut hyper::Body {
-        self.0.body_mut()
+    /// Returns state information provided by the
+    /// [`crate::middleware::StateMiddleware`] middleware.  This is a
+    /// shortcut to retrieving the [`crate::middleware::State`]
+    /// extension from the response.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// use under::middleware::State;
+    /// let mut response = Response::empty_200();
+    /// response.extensions_mut().insert(State(123u32));
+    /// assert_eq!(response.state::<u32>(), Some(&123u32));
+    /// ```
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.ext::<crate::middleware::State<T>>().map(|v| &v.0)
+    }
+
+    /// Retrieves a specific extension from the extensions map.  This is
+    /// the same as calling [`Self::extensions`].`get` wit the given
+    /// type parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut response = Response::empty_200();
+    /// assert_eq!(response.ext::<u32>(), None);
+    /// ```
+    pub fn ext<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.extensions().get::<T>()
+    }
+
+    /// Retrieves a mutable reference to the specific extension from the
+    /// extensions map.  This is the same as calling
+    /// [`Self::extensions_mut`].`get_mut` with the given type
+    /// parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut response = Response::empty_200();
+    /// assert_eq!(response.ext_mut::<u32>(), None);
+    /// ```
+    pub fn ext_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+        self.extensions_mut().get_mut::<T>()
+    }
+
+    /// Sets the value of the specific extension in the extensions map.
+    /// This is the same as calling [`Self::extensions_mut`].`insert`
+    /// with the given parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut response = Response::empty_200();
+    /// response.set_ext(123u32);
+    /// assert_eq!(response.ext::<u32>(), Some(&123u32));
+    /// ```
+    pub fn set_ext<T: Send + Sync + 'static>(&mut self, value: T) -> &mut Self {
+        self.extensions_mut().insert(value);
+        self
+    }
+
+    /// Sets the value of the specific extension in the extensions map,
+    /// consuming `self`, and then returning the new value.  This is
+    /// the same as calling [`Self::set_ext`], but it consumes `self`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let response = Response::empty_200();
+    /// let response = response.with_ext(123u32);
+    /// assert_eq!(response.ext::<u32>(), Some(&123u32));
+    /// ```
+    pub fn with_ext<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.set_ext(value);
+        self
+    }
+
+    /// Removes the specific extension from the extensions map.  This is
+    /// the same as calling [`Self::extensions_mut`].`remove` with the
+    /// given type parameter.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let mut response = Response::empty_200()
+    ///     .with_ext(123u32);
+    /// assert_eq!(response.ext::<u32>(), Some(&123u32));
+    /// response.remove_ext::<u32>();
+    /// assert_eq!(response.ext::<u32>(), None);
+    /// ```
+    pub fn remove_ext<T: Send + Sync + 'static>(&mut self) -> Option<T> {
+        self.extensions_mut().remove::<T>()
+    }
+
+    /// Removes the specific extension from the extensions map,
+    /// consuming `self`, and then returning the removed value.  This
+    /// is the same as calling [`Self::remove_ext`], but it consumes
+    /// `self`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use under::*;
+    /// let response = Response::empty_200()
+    ///     .with_ext(123u32);
+    /// assert_eq!(response.ext::<u32>(), Some(&123u32));
+    /// let response = response.without_ext::<u32>();
+    /// assert_eq!(response.ext::<u32>(), None);
+    /// ```
+    pub fn without_ext<T: Send + Sync + 'static>(mut self) -> Self {
+        self.remove_ext::<T>();
+        self
     }
 
     forward! {
@@ -349,9 +458,20 @@ impl Response {
     }
 }
 
-has_body!(Response);
-has_extensions!(Response);
-has_headers!(Response);
+impl crate::HttpEntity for Response {
+    #[inline]
+    fn body_mut(&mut self) -> &mut hyper::Body {
+        self.0.body_mut()
+    }
+    #[inline]
+    fn headers(&self) -> &http::HeaderMap<http::HeaderValue> {
+        self.0.headers()
+    }
+    #[inline]
+    fn headers_mut(&mut self) -> &mut http::HeaderMap<http::HeaderValue> {
+        self.0.headers_mut()
+    }
+}
 
 impl Default for Response {
     fn default() -> Self {

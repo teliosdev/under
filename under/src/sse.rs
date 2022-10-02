@@ -4,7 +4,7 @@
 //! HTTP library, making it easier to handle SSE connections.  It is gated
 //! behind the `sse` feature flag for those who do not want to use it.
 
-use crate::{Request, Response};
+use crate::{HttpEntity, Request, Response};
 pub use async_sse::Sender;
 use futures::StreamExt;
 use std::future::Future;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 /// Creates an endpoint that can handle SSE connections.  This directly
-/// upgrades the HTTP request to SSE uncondintionally, before calling the
+/// upgrades the HTTP request to SSE unconditionally, before calling the
 /// handler function with the current request and the SSE sender.
 ///
 /// # Examples
