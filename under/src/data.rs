@@ -251,20 +251,18 @@ impl DataTransfer {
 }
 
 mod reader {
+    use futures::Stream;
     use std::io;
     use std::pin::Pin;
     use std::task::{Context, Poll};
-
-    use bytes::Buf;
-    use futures::Stream;
-    use std::io::Cursor;
     use tokio::io::{AsyncRead, ReadBuf};
 
     #[derive(Debug)]
     enum State {
         Pending,
         Done,
-        Partial(Cursor<hyper::body::Bytes>),
+        Ready(hyper::body::Bytes, usize),
+        // Partial(Cursor<hyper::body::Bytes>),
     }
 
     #[derive(Debug)]
@@ -286,23 +284,24 @@ mod reader {
         fn poll_done(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<bool>> {
             loop {
                 match self.as_mut().state {
-                    State::Pending => match self.as_mut().project().inner.poll_next(cx) {
-                        Poll::Ready(Some(Ok(v))) => {
-                            let c = v.len() == 0;
-                            self.as_mut().state = State::Partial(Cursor::new(v));
-                            return Poll::Ready(Ok(c));
+                    State::Pending => {
+                        match futures::ready!(self.as_mut().project().inner.poll_next(cx)) {
+                            Some(Ok(v)) => {
+                                let c = v.len() == 0;
+                                self.as_mut().state = State::Ready(v, 0);
+                                return Poll::Ready(Ok(c));
+                            }
+                            Some(Err(e)) => {
+                                return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)))
+                            }
+                            None => {
+                                self.as_mut().state = State::Done;
+                                return Poll::Ready(Ok(true));
+                            }
                         }
-                        Poll::Ready(Some(Err(e))) => {
-                            return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)))
-                        }
-                        Poll::Ready(None) => {
-                            self.as_mut().state = State::Done;
-                            return Poll::Ready(Ok(true));
-                        }
-                        Poll::Pending => return Poll::Pending,
-                    },
-                    State::Partial(ref mut c) => {
-                        if c.has_remaining() {
+                    }
+                    State::Ready(ref c, ref mut start) => {
+                        if *start < c.len() {
                             return Poll::Ready(Ok(false));
                         } else {
                             self.as_mut().state = State::Pending;
@@ -332,29 +331,30 @@ mod reader {
         ) -> Poll<io::Result<()>> {
             loop {
                 self.state = match self.state {
+                    State::Ready(ref b, ref mut start) => {
+                        let len = std::cmp::min(buf.remaining(), b.len() - *start);
+                        buf.put_slice(&b[*start..*start + len]);
+                        *start += len;
+
+                        if b.len() >= *start {
+                            self.state = State::Pending;
+                        }
+                        return Poll::Ready(Ok(()));
+                    }
                     State::Pending => {
                         match futures::ready!(self.as_mut().project().inner.poll_next(cx)) {
                             Some(Err(e)) => {
-                                return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)))
+                                self.state = State::Done;
+                                return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)));
                             }
-                            Some(Ok(b)) => State::Partial(Cursor::new(b)),
-                            None => State::Done,
+                            Some(Ok(b)) => State::Ready(b, 0),
+                            None => {
+                                self.state = State::Done;
+                                return Poll::Ready(Ok(()));
+                            }
                         }
                     }
                     State::Done => return Poll::Ready(Ok(())),
-                    State::Partial(ref mut cursor) => {
-                        let result = futures::ready!(Pin::new(&mut *cursor).poll_read(cx, buf));
-                        match result {
-                            Ok(()) => {
-                                if cursor.has_remaining() {
-                                    return Poll::Ready(Ok(()));
-                                } else {
-                                    State::Pending
-                                }
-                            }
-                            Err(e) => return Poll::Ready(Err(e)),
-                        }
-                    }
                 }
             }
         }
@@ -383,6 +383,16 @@ mod reader {
             let mut buf = [0u8; 5];
             let b = stream.read(&mut buf).await.unwrap();
             assert_eq!(b, 0);
+        }
+
+        #[tokio::test]
+        async fn test_large_body_read() {
+            let body = Body::from(vec![1u8; 100_000]);
+            let mut stream = StreamReader::from(body);
+            let mut out = Vec::new();
+            let b = stream.read_to_end(&mut out).await.unwrap();
+
+            assert_eq!(b, 100_000);
         }
     }
 }

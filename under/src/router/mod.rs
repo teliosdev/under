@@ -88,6 +88,18 @@ impl Router {
         Path::new(join_paths("", prefix.as_ref()), &mut self.routes)
     }
 
+    /// Creates a [`Path`] at the provided prefix, and executes the provided
+    /// closure with it.  See [`Path::under`] for more.
+    pub fn under<P: AsRef<str>, F: FnOnce(&mut Path<'_>)>(
+        &mut self,
+        prefix: P,
+        build: F,
+    ) -> &mut Self {
+        let mut path = Path::new(join_paths("", prefix.as_ref()), &mut self.routes);
+        build(&mut path);
+        self
+    }
+
     /// Appends middleware to the router.  Each middleware is executed in the
     /// order that it is appended to the router (i.e., the first middleware
     /// inserted executes first).
@@ -171,7 +183,7 @@ impl crate::Endpoint for Router {
                 .or_else(fallback_endpoint)
                 .unwrap_or_else(default_endpoint)
         };
-
+        log::trace!("{} {} --> {:?}", request.method(), request.uri(), endpoint);
         let next = crate::middleware::Next::new(&self.middleware[..], endpoint);
         next.apply(request).await
     }

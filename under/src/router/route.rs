@@ -169,6 +169,41 @@ impl<'a> Path<'a> {
         Path::new(super::join_paths(&self.prefix, path.as_ref()), self.builder)
     }
 
+    /// This appends to the prefix, creating a new [`Path`] from the
+    /// current one and the given supplemental prefix.  This assumes that the
+    /// prefix is never terminated with a forward slash, but always prefixed
+    /// with one.
+    ///
+    /// The created [`Path`] is then yielded to the given closure, which can
+    /// be used to add routes to it; the current [`Path`] is then returned.
+    ///
+    /// # Example
+    /// ```rust
+    /// # fn main() {
+    /// # use under::{Router, Response, endpoints::simple};
+    /// # let mut http = under::http();
+    /// # let user_index = simple(Response::empty_204);
+    /// # let user_show = simple(Response::empty_204);
+    /// # let user_update = simple(Response::empty_204);
+    /// # let user_destroy = simple(Response::empty_204);
+    /// http.under("/user", |base| {
+    ///     base.get(user_index)
+    ///         .under("/{id}", |user| {
+    ///             user
+    ///                 .get(user_show)
+    ///                 .post(user_update)
+    ///                 .delete(user_destroy);
+    ///         });
+    /// });
+    /// # http.prepare();
+    /// # }
+    /// ```
+    pub fn under<P: AsRef<str>, F: FnOnce(&mut Path<'_>)>(&mut self, path: P, f: F) -> &mut Self {
+        let mut base = self.at(path);
+        f(&mut base);
+        self
+    }
+
     /// Creates an endpoint responding to any method at the current prefix.
     ///
     /// # Examples
