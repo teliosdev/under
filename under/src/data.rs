@@ -1,5 +1,8 @@
-use self::reader::StreamReader;
+use futures::TryStreamExt;
+// use self::reader::StreamReader;
+use futures::stream::MapErr;
 use tokio::io::{AsyncReadExt, AsyncWrite, Take};
+use tokio_util::io::StreamReader;
 
 /// The data stream of a body.
 ///
@@ -13,7 +16,9 @@ use tokio::io::{AsyncReadExt, AsyncWrite, Take};
 #[must_use = "this consumes the body of the request regardless of whether it is used"]
 pub struct DataStream {
     /// The underlying stream.
-    stream: Take<StreamReader>,
+    stream: Take<
+        StreamReader<MapErr<hyper::Body, fn(hyper::Error) -> std::io::Error>, hyper::body::Bytes>,
+    >,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -34,13 +39,13 @@ impl DataStream {
     /// Create a new data stream from a hyper body.
     pub(crate) fn new(body: hyper::Body, limit: u64) -> Self {
         Self {
-            stream: StreamReader::from(body).take(limit),
+            stream: StreamReader::new(body.map_err(map_hyper_error as fn(_) -> _)).take(limit + 1),
         }
     }
 
     // note: this is destructive on the stream, so it should only be used once.
-    async fn limit_exceeded(&mut self) -> std::io::Result<bool> {
-        Ok(!self.stream.get_mut().is_done().await?)
+    fn limit_exceeded(&mut self) -> bool {
+        self.stream.limit() <= 1
     }
 
     /// Read data from the stream.
@@ -52,7 +57,7 @@ impl DataStream {
         writer: &mut W,
     ) -> std::io::Result<DataTransfer> {
         let written = tokio::io::copy(&mut self.stream, writer).await?;
-        let complete = !self.limit_exceeded().await?;
+        let complete = !self.limit_exceeded();
         Ok(DataTransfer::new(written, complete))
     }
 
@@ -61,12 +66,12 @@ impl DataStream {
     ///
     /// This is a no-op if the stream is already complete.
     pub async fn dispose(mut self) -> std::io::Result<()> {
-        if !self.limit_exceeded().await? {
+        if !self.limit_exceeded() {
             let mut buf = [0u8; 1024];
             while self.stream.read(&mut buf).await? != 0 {}
         }
 
-        if self.limit_exceeded().await? {
+        if self.limit_exceeded() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
                 "stream not fully consumed",
@@ -121,7 +126,7 @@ impl DataStream {
     /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
     /// let stream = DataStream::from(r#"{"hello": "world"}"#);
     /// dbg!(&stream);
-    /// let body = stream.into_json::<serde_json::Value>().await?;
+    /// let body = stream.into_json::<serde_json::Value>().await.unwrap();
     /// let expected = serde_json::json!({ "hello": "world" });
     /// assert_eq!(body, expected);
     /// # Ok(())
@@ -250,149 +255,157 @@ impl DataTransfer {
     }
 }
 
-mod reader {
-    use futures::Stream;
-    use std::io;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use tokio::io::{AsyncRead, ReadBuf};
-
-    #[derive(Debug)]
-    enum State {
-        Pending,
-        Done,
-        Ready(hyper::body::Bytes, usize),
-        // Partial(Cursor<hyper::body::Bytes>),
-    }
-
-    #[derive(Debug)]
-    #[pin_project::pin_project]
-    pub struct StreamReader {
-        #[pin]
-        inner: hyper::Body,
-        state: State,
-    }
-
-    impl StreamReader {
-        pub(super) async fn is_done(&mut self) -> Result<bool, io::Error> {
-            let mut this = Pin::new(self);
-            std::future::poll_fn(move |x| this.as_mut().poll_done(x)).await
-        }
-
-        /// Polls to determine if this stream is done.  For the `Done` state,
-        /// this is easy - we are definitely done.  For the `Partial` state,
-        fn poll_done(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<bool>> {
-            loop {
-                match self.as_mut().state {
-                    State::Pending => {
-                        match futures::ready!(self.as_mut().project().inner.poll_next(cx)) {
-                            Some(Ok(v)) => {
-                                let c = v.len() == 0;
-                                self.as_mut().state = State::Ready(v, 0);
-                                return Poll::Ready(Ok(c));
-                            }
-                            Some(Err(e)) => {
-                                return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)))
-                            }
-                            None => {
-                                self.as_mut().state = State::Done;
-                                return Poll::Ready(Ok(true));
-                            }
-                        }
-                    }
-                    State::Ready(ref c, ref mut start) => {
-                        if *start < c.len() {
-                            return Poll::Ready(Ok(false));
-                        } else {
-                            self.as_mut().state = State::Pending;
-                            // this will cause a loop
-                        }
-                    }
-                    State::Done => return Poll::Ready(Ok(true)),
-                }
-            }
-        }
-    }
-
-    impl<'r> From<hyper::Body> for StreamReader {
-        fn from(body: hyper::Body) -> Self {
-            Self {
-                inner: body,
-                state: State::Pending,
-            }
-        }
-    }
-
-    impl AsyncRead for StreamReader {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> Poll<io::Result<()>> {
-            loop {
-                self.state = match self.state {
-                    State::Ready(ref b, ref mut start) => {
-                        let len = std::cmp::min(buf.remaining(), b.len() - *start);
-                        buf.put_slice(&b[*start..*start + len]);
-                        *start += len;
-
-                        if b.len() >= *start {
-                            self.state = State::Pending;
-                        }
-                        return Poll::Ready(Ok(()));
-                    }
-                    State::Pending => {
-                        match futures::ready!(self.as_mut().project().inner.poll_next(cx)) {
-                            Some(Err(e)) => {
-                                self.state = State::Done;
-                                return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)));
-                            }
-                            Some(Ok(b)) => State::Ready(b, 0),
-                            None => {
-                                self.state = State::Done;
-                                return Poll::Ready(Ok(()));
-                            }
-                        }
-                    }
-                    State::Done => return Poll::Ready(Ok(())),
-                }
-            }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use hyper::Body;
-        use tokio::io::AsyncReadExt;
-
-        #[tokio::test]
-        async fn test_stream_reader() {
-            let body = Body::from(&[1, 2, 3, 4, 5][..]);
-            let mut stream = StreamReader::from(body);
-            let mut buf = [0u8; 5];
-            let b = stream.read(&mut buf).await.unwrap();
-            assert_eq!(b, 5);
-            assert_eq!(buf, [1, 2, 3, 4, 5]);
-        }
-
-        #[tokio::test]
-        async fn test_empty_stream_reader() {
-            let body = Body::empty();
-            let mut stream = StreamReader::from(body);
-            let mut buf = [0u8; 5];
-            let b = stream.read(&mut buf).await.unwrap();
-            assert_eq!(b, 0);
-        }
-
-        #[tokio::test]
-        async fn test_large_body_read() {
-            let body = Body::from(vec![1u8; 100_000]);
-            let mut stream = StreamReader::from(body);
-            let mut out = Vec::new();
-            let b = stream.read_to_end(&mut out).await.unwrap();
-
-            assert_eq!(b, 100_000);
-        }
+fn map_hyper_error(e: hyper::Error) -> std::io::Error {
+    if e.is_closed() || e.is_incomplete_message() || e.is_canceled() {
+        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e)
+    } else {
+        std::io::Error::new(std::io::ErrorKind::Other, e)
     }
 }
+
+// mod reader {
+//     use futures::Stream;
+//     use std::io;
+//     use std::pin::Pin;
+//     use std::task::{Context, Poll};
+//     use tokio::io::{AsyncRead, ReadBuf};
+
+//     #[derive(Debug)]
+//     enum State {
+//         Pending,
+//         Done,
+//         Ready(hyper::body::Bytes, usize),
+//         // Partial(Cursor<hyper::body::Bytes>),
+//     }
+
+//     #[derive(Debug)]
+//     #[pin_project::pin_project]
+//     pub struct StreamReader {
+//         #[pin]
+//         inner: hyper::Body,
+//         state: State,
+//     }
+
+//     impl StreamReader {
+//         pub(super) async fn is_done(&mut self) -> Result<bool, io::Error> {
+//             let mut this = Pin::new(self);
+//             std::future::poll_fn(move |x| this.as_mut().poll_done(x)).await
+//         }
+
+//         /// Polls to determine if this stream is done.  For the `Done` state,
+//         /// this is easy - we are definitely done.  For the `Partial` state,
+//         fn poll_done(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<bool>> {
+//             loop {
+//                 match self.as_mut().state {
+//                     State::Pending => {
+//                         match futures::ready!(self.as_mut().project().inner.poll_next(cx)) {
+//                             Some(Ok(v)) => {
+//                                 let c = v.len() == 0;
+//                                 self.as_mut().state = State::Ready(v, 0);
+//                                 return Poll::Ready(Ok(c));
+//                             }
+//                             Some(Err(e)) => {
+//                                 return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)))
+//                             }
+//                             None => {
+//                                 self.as_mut().state = State::Done;
+//                                 return Poll::Ready(Ok(true));
+//                             }
+//                         }
+//                     }
+//                     State::Ready(ref c, ref mut start) => {
+//                         if *start < c.len() {
+//                             return Poll::Ready(Ok(false));
+//                         } else {
+//                             self.as_mut().state = State::Pending;
+//                             // this will cause a loop
+//                         }
+//                     }
+//                     State::Done => return Poll::Ready(Ok(true)),
+//                 }
+//             }
+//         }
+//     }
+
+//     impl<'r> From<hyper::Body> for StreamReader {
+//         fn from(body: hyper::Body) -> Self {
+//             Self {
+//                 inner: body,
+//                 state: State::Pending,
+//             }
+//         }
+//     }
+
+//     impl AsyncRead for StreamReader {
+//         fn poll_read(
+//             mut self: Pin<&mut Self>,
+//             cx: &mut Context<'_>,
+//             buf: &mut ReadBuf<'_>,
+//         ) -> Poll<io::Result<()>> {
+//             loop {
+//                 self.state = match self.state {
+//                     State::Ready(ref b, ref mut start) => {
+//                         let len = std::cmp::min(buf.remaining(), b.len() - *start);
+//                         buf.put_slice(&b[*start..*start + len]);
+//                         *start += len;
+
+//                         if b.len() >= *start {
+//                             self.state = State::Pending;
+//                         }
+//                         return Poll::Ready(Ok(()));
+//                     }
+//                     State::Pending => {
+//                         match futures::ready!(self.as_mut().project().inner.poll_next(cx)) {
+//                             Some(Err(e)) => {
+//                                 self.state = State::Done;
+//                                 return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e)));
+//                             }
+//                             Some(Ok(b)) => State::Ready(b, 0),
+//                             None => {
+//                                 self.state = State::Done;
+//                                 return Poll::Ready(Ok(()));
+//                             }
+//                         }
+//                     }
+//                     State::Done => return Poll::Ready(Ok(())),
+//                 }
+//             }
+//         }
+//     }
+
+//     #[cfg(test)]
+//     mod tests {
+//         use super::*;
+//         use hyper::Body;
+//         use tokio::io::AsyncReadExt;
+
+//         #[tokio::test]
+//         async fn test_stream_reader() {
+//             let body = Body::from(&[1, 2, 3, 4, 5][..]);
+//             let mut stream = StreamReader::from(body);
+//             let mut buf = [0u8; 5];
+//             let b = stream.read(&mut buf).await.unwrap();
+//             assert_eq!(b, 5);
+//             assert_eq!(buf, [1, 2, 3, 4, 5]);
+//         }
+
+//         #[tokio::test]
+//         async fn test_empty_stream_reader() {
+//             let body = Body::empty();
+//             let mut stream = StreamReader::from(body);
+//             let mut buf = [0u8; 5];
+//             let b = stream.read(&mut buf).await.unwrap();
+//             assert_eq!(b, 0);
+//         }
+
+//         #[tokio::test]
+//         async fn test_large_body_read() {
+//             let body = Body::from(vec![1u8; 100_000]);
+//             let mut stream = StreamReader::from(body);
+//             let mut out = Vec::new();
+//             let b = stream.read_to_end(&mut out).await.unwrap();
+
+//             assert_eq!(b, 100_000);
+//         }
+//     }
+// }

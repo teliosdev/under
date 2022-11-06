@@ -281,6 +281,8 @@ impl<'a> Path<'a> {
         /// TODO.
         pub fn post = http::Method::POST;
         /// TODO.
+        pub fn options = http::Method::OPTIONS;
+        /// TODO.
         pub fn put = http::Method::PUT;
         /// TODO.
         pub fn delete = http::Method::DELETE;
