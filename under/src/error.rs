@@ -36,7 +36,7 @@ pub enum UnderError {
     /// Generated when attempting to deserialize the body of a request or
     /// response from text.
     #[error("could not deserialize the body of a request or response from utf-8")]
-    TextDeserialization(#[source] std::str::Utf8Error),
+    TextDeserialization(#[source] std::string::FromUtf8Error),
     #[cfg(feature = "from_form")]
     #[doc(cfg(feature = "from_form"))]
     /// Generated when attempting to deserialize the body of a request or
@@ -47,4 +47,8 @@ pub enum UnderError {
     /// content type.
     #[error("the content-type of the request was invalid")]
     UnsupportedMediaType(Option<mime::Mime>),
+    /// Generated when the request body of the request (if not provided with
+    /// a Content-Length header) is too large.
+    #[error("the request body of the request was too long, and was cut off")]
+    PayloadTooLarge(#[source] anyhow::Error),
 }
