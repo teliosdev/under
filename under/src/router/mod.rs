@@ -10,6 +10,7 @@ use crate::middleware::Middleware;
 use crate::{Request, Response};
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::sync::watch;
 
 /// An HTTP router.
 ///
@@ -49,6 +50,7 @@ pub struct Router {
     routes: Vec<Arc<Route>>,
     middleware: Vec<Pin<Box<dyn Middleware>>>,
     fallback: Option<Pin<Box<dyn Endpoint>>>,
+    terminate: Option<watch::Receiver<bool>>,
 }
 
 impl Default for Router {
@@ -58,6 +60,7 @@ impl Default for Router {
             middleware: vec![],
             routes: vec![],
             fallback: None,
+            terminate: None,
         }
     }
 }
@@ -137,6 +140,21 @@ impl Router {
     pub fn fallback<E: Endpoint>(&mut self, endpoint: E) -> &mut Self {
         self.fallback = Some(Box::pin(endpoint));
         self
+    }
+
+    /// A channel to handle the termination singal.  By default, the router does
+    /// not terminate, at least not gracefully, even in the face of
+    /// SIGINT/SIGTERM.  This allows you to signal to the router when it should
+    /// terminate, and it will gracefully shut down, letting all current
+    /// requests finish before exiting.  Note that the return type is not
+    /// `Clone`, and dropping the sender will not terminate the router.
+    ///
+    /// Note this only applies to the router when listening, and not when
+    /// handling a single request.
+    pub fn termination_signal(&mut self) -> watch::Sender<bool> {
+        let (tx, rx) = watch::channel(false);
+        self.terminate = Some(rx);
+        tx
     }
 
     /// Handles a one-off request to the router.  This is equivalent to pinning

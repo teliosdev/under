@@ -43,6 +43,22 @@ impl Router {
             }
         }
 
+        let termination = self.terminate.take();
+        let termination = async {
+            match termination {
+                Some(mut tx) => loop {
+                    if *tx.borrow() {
+                        break;
+                    }
+                    match tx.changed().await {
+                        Ok(_) => continue,
+                        Err(_) => futures::future::pending().await,
+                    }
+                },
+                None => futures::future::pending().await,
+            }
+        };
+
         let this = Arc::pin(self);
 
         hyper::server::Server::bind(&address)
@@ -53,6 +69,7 @@ impl Router {
                     async move { Ok::<_, std::convert::Infallible>(service) }
                 },
             ))
+            .with_graceful_shutdown(termination)
             .await
             .map_err(UnderError::HyperServer)?;
 
