@@ -26,7 +26,7 @@ impl Fragment {
             .match_keys()
             .iter()
             .enumerate()
-            .flat_map(|(i, n)| n.clone().map(|nn| (nn, fragments_index[i].clone())))
+            .filter_map(|(i, n)| n.clone().map(|nn| (nn, fragments_index[i].clone())))
             .collect::<HashMap<_, _>>();
 
         Some(Fragment {
@@ -39,7 +39,7 @@ impl Fragment {
     pub(crate) fn get(&self, i: usize) -> Option<&str> {
         self.fragments_index
             .get(i)
-            .and_then(|r| r.as_ref())
+            .and_then(Option::as_ref)
             .map(|r| &self.base[r.clone()])
     }
 
@@ -51,7 +51,7 @@ impl Fragment {
     {
         self.fragments_hash
             .get(n)
-            .and_then(|r| r.as_ref())
+            .and_then(Option::as_ref)
             .map(|r| &self.base[r.clone()])
     }
 

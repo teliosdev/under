@@ -64,7 +64,7 @@ fn push_pattern(buffer: &mut String, name: Option<&str>, pattern: Option<&str>) 
     impl std::fmt::Display for NamePattern<'_> {
         fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             if let Some(n) = self.0 {
-                write!(fmt, "?P<{}>", n)
+                write!(fmt, "?P<{n}>")
             } else {
                 Ok(())
             }
@@ -72,13 +72,13 @@ fn push_pattern(buffer: &mut String, name: Option<&str>, pattern: Option<&str>) 
     }
     let name = NamePattern(name);
     match pattern {
-        Some("oext") => write!(buffer, "(?:\\.({}[^/]+))?", name),
-        Some("int") => write!(buffer, "({}[+-]?\\d+)", name),
-        Some("uint") => write!(buffer, "({}\\d+)", name),
-        Some("path") => write!(buffer, "({}.+)", name),
-        Some("uuid") => write!(buffer, "({}{})", name, UUID_PATTERN),
-        Some("str" | "s" | "string") | None => write!(buffer, "({}[^/]+)", name),
-        Some(v) => panic!("unknown path pattern type {:?}", v),
+        Some("oext") => write!(buffer, "(?:\\.({name}[^/]+))?"),
+        Some("int") => write!(buffer, "({name}[+-]?\\d+)"),
+        Some("uint") => write!(buffer, "({name}\\d+)"),
+        Some("path") => write!(buffer, "({name}.+)"),
+        Some("uuid") => write!(buffer, "({name}{UUID_PATTERN})"),
+        Some("str" | "s" | "string") | None => write!(buffer, "({name}[^/]+)"),
+        Some(v) => panic!("unknown path pattern type {v:?}"),
     }
     .unwrap();
 }

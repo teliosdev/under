@@ -194,6 +194,7 @@ impl RemoteAddress<'_> {
     ///     .apply();
     /// assert_eq!(ip, Some(IpAddr::from([3, 3, 3, 3])));
     /// ```
+    #[must_use = "you probably don't intend to discard this value"]
     pub fn apply(&self) -> Option<IpAddr> {
         for source in &self.trusted_sources {
             if let Some(ip) = source.apply(self.request) {
@@ -243,9 +244,8 @@ impl RemoteAddressSource {
             RemoteAddressSource::Header(name) => request
                 .header_all(&**name)
                 .into_iter()
-                .flat_map(|v| v.to_str().ok())
-                .flat_map(|v| v.parse().ok())
-                .next(),
+                .filter_map(|v| v.to_str().ok())
+                .find_map(|v| v.parse().ok()),
             RemoteAddressSource::PeerAddress => request.peer_addr().map(|v| v.ip()),
         }
     }
@@ -255,14 +255,16 @@ fn x_forwarded_for_header(request: &super::Request, index: isize) -> Option<IpAd
     let mut ip = request
         .header_all("X-Forwarded-For")
         .into_iter()
-        .flat_map(|s| s.to_str().ok())
+        .filter_map(|s| s.to_str().ok())
         .flat_map(|s| s.split(','))
-        .map(|s| s.trim());
+        .map(str::trim);
 
     if index < 0 {
+        #[allow(clippy::cast_sign_loss)]
         let index = (index.checked_abs()? as usize).checked_sub(1)?;
         ip.nth_back(index).and_then(|s| s.parse().ok())
     } else if index >= 0 {
+        #[allow(clippy::cast_sign_loss)]
         ip.nth(index as usize).and_then(|s| s.parse().ok())
     } else {
         None
@@ -279,9 +281,7 @@ lazy_static::lazy_static! {
 // Not sure this is a good thing.
 fn forwarded_header(request: &super::Request, index: isize) -> Option<IpAddr> {
     fn parse_key_value(s: &str) -> Option<(&str, &str)> {
-        let mut iter = s.splitn(2, '=');
-        let key = iter.next()?;
-        let value = iter.next()?;
+        let (key, value) = s.split_once('=')?;
         Some((key, value))
     }
 
@@ -297,28 +297,30 @@ fn forwarded_header(request: &super::Request, index: isize) -> Option<IpAddr> {
     let ip = request
         .header_all("Forwarded")
         .into_iter()
-        .flat_map(|s| s.to_str().ok())
+        .filter_map(|s| s.to_str().ok())
         .flat_map(|s| s.split(','))
-        .map(|s| s.trim())
+        .map(str::trim)
         .map(|s| {
             s.split(';')
-                .flat_map(|s| parse_key_value(s.trim()))
+                .filter_map(|s| parse_key_value(s.trim()))
                 .collect::<Vec<_>>()
         });
 
     // FOR_WORD is a requirement here because the standard says `for` is
     // case insensitive.  We _could_ try to lowercase it, but...
-    let mut ffor = ip.flat_map(|v| {
+    let mut ffor = ip.filter_map(|v| {
         v.iter()
             .find(|(k, _)| FOR_WORD.is_match(k))
             .map(|(_, v)| *v)
     });
 
     if index < 0 {
+        #[allow(clippy::cast_sign_loss)]
         let index = (index.checked_abs()? as usize).checked_sub(1)?;
-        ffor.nth_back(index).and_then(|s| parse_ip(s))
+        ffor.nth_back(index).and_then(parse_ip)
     } else if index >= 0 {
-        ffor.nth(index as usize).and_then(|s| parse_ip(s))
+        #[allow(clippy::cast_sign_loss)]
+        ffor.nth(index as usize).and_then(parse_ip)
     } else {
         None
     }

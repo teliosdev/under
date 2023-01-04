@@ -47,7 +47,7 @@ fn resolve_path(param: Option<String>, base: &Path) -> Option<PathBuf> {
 async fn resolve_file(mut path: PathBuf, request: &str) -> Result<Response, Error> {
     match tokio::fs::metadata(&path).await {
         Ok(meta) if meta.is_dir() && !request.ends_with('/') => {
-            return Response::permanent_redirect(format!("{}/", request)).map_err(Error::from);
+            return Response::permanent_redirect(format!("{request}/")).map_err(Error::from);
         }
         Ok(meta) if meta.is_dir() => {
             path.push("index.html");
@@ -68,7 +68,7 @@ async fn resolve_file(mut path: PathBuf, request: &str) -> Result<Response, Erro
 }
 
 fn load_file(file: tokio::fs::File, path: &Path) -> Result<Response, Error> {
-    let mime_type = mime_guess::MimeGuess::from_path(&path).first_or_octet_stream();
+    let mime_type = mime_guess::MimeGuess::from_path(path).first_or_octet_stream();
     hyper::Response::builder()
         .header(http::header::CONTENT_TYPE, mime_type.to_string())
         .status(hyper::StatusCode::OK)

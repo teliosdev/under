@@ -91,6 +91,7 @@ pub trait CookieExt: self::sealed::Sealed + Sized {
     /// let request = request.with_cookies(Default::default());
     /// assert!(request.cookies().is_some());
     /// ```
+    #[must_use]
     fn with_cookies(mut self, jar: CookieJar) -> Self {
         self.extensions_mut().insert(jar);
         self
@@ -111,7 +112,9 @@ pub trait CookieExt: self::sealed::Sealed + Sized {
     /// assert_eq!(request.cookie("foo"), Some("bar"));
     /// ```
     fn cookie(&self, name: &str) -> Option<&str> {
-        self.cookies().and_then(|c| c.get(name)).map(|c| c.value())
+        self.cookies()
+            .and_then(|c| c.get(name))
+            .map(cookie::Cookie::value)
     }
 
     /// Adds the given cookie to the current cookie jar.  This addition does
@@ -133,6 +136,7 @@ pub trait CookieExt: self::sealed::Sealed + Sized {
 
     /// Adds the given cookie to the cookie jar.  This is essentially the same
     /// as [`Self::add_cookie`].
+    #[must_use]
     fn with_cookie(mut self, cookie: Cookie<'static>) -> Self {
         self.add_cookie(cookie);
         self
@@ -173,6 +177,7 @@ impl std::fmt::Debug for CookieMiddleware {
 impl CookieMiddleware {
     /// Creates a new cookie middleware.  This is provided as an alternative
     /// to `Default`.
+    #[must_use]
     pub fn new() -> Self {
         Self { _v: () }
     }
@@ -189,9 +194,9 @@ impl Middleware for CookieMiddleware {
             .headers()
             .get_all("Cookie")
             .into_iter()
-            .flat_map(|h| h.to_str().ok())
-            .flat_map(|h| Cookie::parse_encoded(h).ok())
-            .map(|c| c.into_owned())
+            .filter_map(|h| h.to_str().ok())
+            .filter_map(|h| Cookie::parse_encoded(h).ok())
+            .map(cookie::Cookie::into_owned)
             .fold(CookieJar::new(), |mut jar, cookie| {
                 jar.add_original(cookie);
                 jar

@@ -56,6 +56,7 @@ pub trait HttpEntity: Sized {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     fn with_body<I: Into<hyper::Body>>(mut self, body: I) -> Self {
         *self.body_mut() = body.into();
         self
@@ -437,37 +438,6 @@ pub trait HttpEntity: Sized {
     }
 
     /// Attempts to parse the body based off of the content-type header;
-    /// currently, it can sniff either `application/json` or
-    /// `application/x-www-form-urlencoded`.  If the content-type is either of
-    /// those, it forwards the call to the respective functions
-    /// ([`Self::as_json`] and [`Self::as_form`]).  If it cannot find
-    /// the content type, or the content type is not one of those two, it will
-    /// return an error.
-    ///
-    /// # Note
-    /// This provides an implicit limit of 3,000,000 bytes. If the body
-    /// exceeds this limit, then this function will return an error.
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use under::*;
-    /// #[derive(Debug, serde::Deserialize, FromForm, PartialEq, Eq)]
-    /// struct Form {
-    ///    hello: String,
-    /// }
-    ///
-    /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
-    /// let mut response = Response::text(r#"{"hello": "world"}"#);
-    /// response
-    ///     .set_header(http::header::CONTENT_TYPE, "application/json")?;
-    /// let body = response.as_sniff::<Form>(512).await?;
-    /// let expected = Form { hello: "world".to_string() };
-    /// assert_eq!(body, expected);
-    /// # Ok(())
-    /// # }
-    /// ```
-
-    /// Attempts to parse the body based off of the content-type header;
     /// currently, it can sniff any activated serde features (e.g. `json`,
     /// `cbor`, `msgpack`).  If the content-type is one of those, it forwards
     /// the call to the respective functions ([`DataStream::into_json`],
@@ -493,8 +463,8 @@ pub trait HttpEntity: Sized {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(all(feature = "serde"))]
-    #[doc(cfg(all(feature = "serde")))]
+    #[cfg(feature = "serde")]
+    #[doc(cfg(feature = "serde"))]
     async fn as_sniff<T: serde::de::DeserializeOwned>(
         &mut self,
         limit: u64,
@@ -514,13 +484,18 @@ pub trait HttpEntity: Sized {
     /// This functions similarly to [`HttpEntity::as_sniff`], but it also can
     /// parse `x-www-form-urlencoded` content types as well.
     #[cfg(all(feature = "serde", feature = "from_form"))]
-    #[doc(cfg(all(feature = "serde", feature = "from_form")))]
+    #[cfg_attr(
+        feature = "nightly",
+        doc(cfg(all(feature = "serde", feature = "from_form")))
+    )]
     async fn as_sniff_form<T: serde::de::DeserializeOwned + crate::FromForm>(
         &mut self,
         limit: u64,
     ) -> Result<T, UnderError> {
         let ctype = self.content_type();
-        if ctype.as_ref().map(|m| m.essence_str()) == Some("application/x-www-form-urlencoded") {
+        if ctype.as_ref().map(mime_guess::Mime::essence_str)
+            == Some("application/x-www-form-urlencoded")
+        {
             self.data(limit).into_form().await
         } else {
             sniff_serde(self, limit).await
@@ -535,7 +510,7 @@ async fn sniff_serde<E: HttpEntity, T: serde::de::DeserializeOwned>(
     limit: u64,
 ) -> Result<T, UnderError> {
     let ctype = entity.content_type();
-    let essence = ctype.as_ref().map(|m| m.essence_str());
+    let essence = ctype.as_ref().map(mime_guess::Mime::essence_str);
 
     match essence {
         #[cfg(feature = "json")]

@@ -84,7 +84,14 @@ impl<'a> Next<'a> {
     /// It is valid behavior to not call this function; not calling this
     /// function means interrupting the stack, and none of the remaining
     /// middleware nor endpoints will be run.  This could be useful for e.g.
-    /// requiring authentication, or
+    /// requiring authentication, or rate limiting.
+    ///
+    /// Note that it is entirely possible for this function to not return, if
+    /// something down the line panics.
+    ///
+    /// # Errors
+    /// This errors if any middleware below this one errors, or if the endpoint
+    /// itself errors.
     pub async fn apply(self, request: Request) -> Result<Response, anyhow::Error> {
         if let Some((current, next)) = self.middleware.split_first() {
             let new = Next {

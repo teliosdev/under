@@ -1,6 +1,5 @@
-use futures::TryStreamExt;
-// use self::reader::StreamReader;
 use futures::stream::MapErr;
+use futures::TryStreamExt;
 use tokio::io::{AsyncReadExt, AsyncWrite, Take};
 use tokio_util::io::StreamReader;
 
@@ -18,14 +17,14 @@ use crate::UnderError;
 #[must_use = "this consumes the body of the request regardless of whether it is used"]
 pub struct DataStream {
     /// The underlying stream.
-    stream: Take<
-        StreamReader<MapErr<hyper::Body, fn(hyper::Error) -> std::io::Error>, hyper::body::Bytes>,
-    >,
+    stream: Take<StreamReader<HttpStream, hyper::body::Bytes>>,
 }
+
+type HttpStream = MapErr<hyper::Body, fn(hyper::Error) -> std::io::Error>;
 
 #[derive(Debug, Copy, Clone)]
 /// Information about a data transfer.  This is the result of
-/// [`DataStream::transfer`], and provides information about the state of the
+/// [`DataStream::into`], and provides information about the state of the
 /// stream after the transfer.
 pub struct DataTransfer {
     /// The number of bytes that were transferred.  This may be less than the
@@ -54,6 +53,11 @@ impl DataStream {
     ///
     /// This streams from the body into the provided writer, and returns the
     /// number of bytes read and whether or not the stream is complete.
+    ///
+    /// # Errors
+    /// This returns an error if the underlying stream cannot be written to the
+    /// given writer.  It does not return an error if the stream is incomplete,
+    /// as that is expected to be handled by the caller.
     pub async fn into<W: AsyncWrite + Unpin>(
         mut self,
         writer: &mut W,
@@ -70,16 +74,20 @@ impl DataStream {
     /// This streams from the body into the provided buffer, and returns the
     /// resulting buffer.  If the body of the request is too large to fit into
     /// the limit of the buffer, then an error is returned.
+    ///
+    /// # Errors
+    /// This returns an error if the underlying stream cannot be written to a
+    /// buffer, or if the stream is incomplete.
     pub async fn into_bytes(self) -> Result<Vec<u8>, UnderError> {
         let mut buf = Vec::new();
         let transfer = self.into(&mut buf).await?;
 
-        if !transfer.complete {
+        if transfer.complete {
+            Ok(buf)
+        } else {
             Err(UnderError::PayloadTooLarge(anyhow::anyhow!(
                 "body too large"
             )))
-        } else {
-            Ok(buf)
         }
     }
 
@@ -88,15 +96,22 @@ impl DataStream {
     /// This streams from the body into the provided buffer, and returns the
     /// resulting buffer.  If the body of the request is too large to fit into
     /// the limit of the buffer, then an error is returned.
+    ///
+    /// # Errors
+    /// Errors for the same reason as [`DataStream::into_bytes`], and also
+    /// returns an error if the body cannot be converted to a UTF-8 string.
     pub async fn into_text(self) -> Result<String, UnderError> {
         let bytes = self.into_bytes().await?;
-        String::from_utf8(bytes).map_err(|e| UnderError::TextDeserialization(e))
+        String::from_utf8(bytes).map_err(UnderError::TextDeserialization)
     }
 
     /// Parses the contents of the body as JSON, deserializing it into the
     /// given value.  JSON has strict limits on the bytes/characters allowed
     /// for serialization/deserialization, so the charset should not matter.
     ///
+    /// # Errors
+    /// Errors for the same reason as [`DataStream::into_bytes`], and also
+    /// returns an error if the body cannot be converted to a JSON value.
     ///
     /// # Examples
     /// ```rust
@@ -167,13 +182,13 @@ impl DataStream {
     /// deserializing it into the given value.  This
     /// assumes that the request body is already UTF-8, or a UTF-8 compatible
     /// encoding, and does not check the content-type to make sure.  If that
-    /// is a concern, use [`Self::as_bytes`], and handle the conversion
+    /// is a concern, use [`Self::into_bytes`], and handle the conversion
     /// yourself; or, if it's a common occurrence, open a ticket, with your
     /// use-case and a proposed solution.
     ///
-    /// # Note
-    /// This provides an implicit limit of 3,000,000 bytes. If the body
-    /// exceeds this limit, then this function will return an error.
+    /// # Errors
+    /// Errors for the same reason as [`DataStream::into_bytes`], and also
+    /// returns an error if the body cannot be converted to a form value.
     ///
     /// # Examples
     /// ```rust
@@ -209,7 +224,7 @@ where
             .unwrap_or_else(|| size_hint.lower())
             .min(3_000_000)
             + 1;
-        Self::new(body.into(), limit)
+        Self::new(body, limit)
     }
 }
 

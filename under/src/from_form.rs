@@ -50,7 +50,7 @@ pub trait FromForm: Sized {
         V: AsRef<str> + 'f;
 }
 
-impl<V> FromForm for std::collections::HashMap<String, V>
+impl<V, S: std::hash::BuildHasher + Default> FromForm for std::collections::HashMap<String, V, S>
 where
     V: for<'f> FromFormMultiple<'f>,
     for<'f> <V as FromFormMultiple<'f>>::Item: FromFormValue<'f>,
@@ -62,7 +62,7 @@ where
         K: AsRef<str> + 'f,
         VV: AsRef<str> + 'f,
     {
-        let mut map = std::collections::HashMap::new();
+        let mut map = <std::collections::HashMap<String, V, S> as Default>::default();
         for (key, value) in form {
             let key = key.as_ref().to_string();
             let value = V::Item::from_form_value(value.as_ref()).map_err(|e| {

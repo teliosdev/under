@@ -79,9 +79,7 @@ pub(super) fn from_form(s: syn::ItemStruct) -> Result<proc_macro2::TokenStream, 
         } else {
             quote::quote_spanned!(Span::mixed_site()=> )
         };
-        if f.multiple {
-            quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name)
-        } else if f.optional {
+        if f.multiple || f.optional {
             quote::quote_spanned!(Span::mixed_site()=> #prefix #variable_name)
         } else {
             match f.default {
@@ -315,12 +313,12 @@ impl<'f> FormFieldMeta<'f> {
             .clone()
             .map(|n| {
                 syn::Ident::new(
-                    &format!("__field_{}", n),
+                    &format!("__field_{n}"),
                     n.span().resolved_at(Span::mixed_site()),
                 )
             })
             .unwrap_or_else(|| {
-                syn::Ident::new(&format!("__field_{}", i), proc_macro2::Span::mixed_site())
+                syn::Ident::new(&format!("__field_{i}"), proc_macro2::Span::mixed_site())
             });
         let struct_name = field.ident.clone().unwrap_or_else(|| variable_name.clone());
 
@@ -412,7 +410,7 @@ impl Rename {
             "SCREAMING_SNAKE_CASE" => Ok(Rename::ScreamingSnakeCase),
             "kebab-case" => Ok(Rename::KebabCase),
             "SCREAMING-KEBAB-CASE" => Ok(Rename::ScreamingKebabCase),
-            _ => Err(format!("unknown rename rule: {}", s)),
+            _ => Err(format!("unknown rename rule: {s}")),
         }
     }
 

@@ -1,5 +1,10 @@
 # Under
 
+[![Version](https://img.shields.io/crates/v/under)](https://crates.io/crates/under)
+[![docs.rs](https://img.shields.io/docsrs/under)](https://docs.rs/under)
+[![License](https://img.shields.io/crates/l/under)](./LICENSE)
+[![CI](https://github.com/medcat/under/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/medcat/under/actions/workflows/main.yml)
+
 A very simple HTTP server framework.  This serves as a small layer
 between your application code and Hyper.
 

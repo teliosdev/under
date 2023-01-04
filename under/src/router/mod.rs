@@ -73,11 +73,14 @@ impl Router {
     /// testing, and so this must be called before any requests are routed
     /// (or, if any routes are changed).  If this is not called, you will
     /// receive only 500 errors.
+    #[allow(clippy::missing_panics_doc)]
     pub fn prepare(&mut self) {
         let patterns = self
             .routes
             .iter()
             .map(|route| route.pattern.regex().as_str());
+        // This shouldn't panic, because the patterns were already validated
+        // (e.g. if any of them were invalid, we would have already panicked).
         let set = regex::RegexSet::new(patterns).unwrap();
         self.regex = set;
     }
@@ -160,6 +163,11 @@ impl Router {
     /// Handles a one-off request to the router.  This is equivalent to pinning
     /// the router (with [`Pin::new`], since the Router is `Unpin`), before
     /// calling [`crate::Endpoint::apply`].
+    ///
+    /// # Errors
+    /// This will error if any middleware or endpoint errors.  Note that this
+    /// does not error if the router was not prepared before calling this
+    /// method.
     pub async fn handle(&self, request: Request) -> Result<Response, anyhow::Error> {
         Pin::new(self).apply(request).await
     }
@@ -187,7 +195,7 @@ impl crate::Endpoint for Router {
             // This should most always be a `Some`, because the route's path
             // would 100% match the uri's path.
             if let Some(fragment) =
-                crate::request::fragment::Fragment::new(request.uri().path(), &*route)
+                crate::request::fragment::Fragment::new(request.uri().path(), &route)
             {
                 request.extensions_mut().insert(fragment);
             }

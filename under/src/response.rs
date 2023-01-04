@@ -207,7 +207,9 @@ impl Response {
     /// let response = Response::empty_status(http::StatusCode::NOT_FOUND);
     /// assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
     /// ```
+    #[allow(clippy::missing_panics_doc)]
     pub fn empty_status(status: http::StatusCode) -> Self {
+        // This shouldn't panic, as the headers are garenteed to be valid.
         Response(
             http::Response::builder()
                 .status(status)
@@ -224,7 +226,9 @@ impl Response {
     /// # use under::*;
     /// let response = Response::text("hello, world");
     /// ```
+    #[allow(clippy::missing_panics_doc)]
     pub fn text<V: Into<String>>(body: V) -> Self {
+        // This shouldn't panic, as the headers are garenteed to be valid.
         Response(
             http::Response::builder()
                 .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
@@ -247,8 +251,11 @@ impl Response {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     #[cfg(feature = "json")]
+    #[allow(clippy::missing_panics_doc)]
     pub fn json<V: serde::Serialize>(body: &V) -> Result<Self, serde_json::Error> {
         let value = serde_json::to_string(body)?;
+        // This shouldn't panic, as the value is a valid JSON string, and the
+        // headers are garenteed to be valid.
         Ok(Response(
             http::Response::builder()
                 .header(
@@ -513,6 +520,11 @@ impl From<Response> for http::Response<hyper::Body> {
 ///    type be `Infallible`.
 pub trait IntoResponse {
     /// Converts the current type into a response.
+    ///
+    /// # Errors
+    /// This can error if the conversion into a response fails.
+    /// This can fail if the current type is a `Result`, or if
+    /// e.g. the response fails to serialize.
     fn into_response(self) -> Result<Response, anyhow::Error>;
 }
 

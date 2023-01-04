@@ -149,6 +149,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[must_use]
 pub fn scope() -> ScopeEndpointBuilder {
-    Default::default()
+    ScopeEndpointBuilder::default()
 }

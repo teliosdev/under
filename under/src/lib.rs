@@ -7,7 +7,7 @@
 //! To get started, just add under and tokio to your `Cargo.toml`:
 //!
 //! ```toml
-//! under = "0.1.0"
+//! under = "0.3.4"
 //! tokio = { version = "1.12.0", features = ["full"] } # or whatever the latest version is
 //! ```
 //!
@@ -32,6 +32,7 @@
     clippy::pedantic
 )]
 #![deny(clippy::correctness, unused_must_use)]
+#![allow(clippy::module_name_repetitions)]
 #![feature(doc_cfg)]
 
 #[macro_use]

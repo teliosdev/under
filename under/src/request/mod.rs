@@ -162,6 +162,10 @@ impl Request {
     /// Creates a new request initialized with the provided method and the
     /// given URI.
     ///
+    /// # Errors
+    /// This method will return an error if the provided URI is invalid, or if
+    /// the provided method is not a valid HTTP method.
+    ///
     /// # Examples
     /// ```rust
     /// # use under::*;
@@ -302,6 +306,7 @@ impl Request {
     ///     .with_local_addr();
     /// assert_eq!(request.peer_addr(), Some(SocketAddr::from(([127, 0, 0, 1], 0))));
     /// ```
+    #[must_use]
     pub fn with_local_addr(mut self) -> Self {
         self.extensions_mut()
             .insert(crate::middleware::PeerAddress(std::net::SocketAddr::from(
@@ -470,6 +475,7 @@ impl Request {
     /// let request = request.with_ext(123u32);
     /// assert_eq!(request.ext::<u32>(), Some(&123u32));
     /// ```
+    #[must_use]
     pub fn with_ext<T: Send + Sync + 'static>(mut self, value: T) -> Self {
         self.set_ext(value);
         self
@@ -506,6 +512,7 @@ impl Request {
     /// let request = request.without_ext::<u32>();
     /// assert_eq!(request.ext::<u32>(), None);
     /// ```
+    #[must_use]
     pub fn without_ext<T: Send + Sync + 'static>(mut self) -> Self {
         self.remove_ext::<T>();
         self

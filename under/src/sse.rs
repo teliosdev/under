@@ -67,12 +67,13 @@ where
 /// let mut http = under::http();
 /// http.at("/sse").get(handle);
 /// ```
+#[allow(clippy::missing_errors_doc)]
 pub fn upgrade<F, Fut>(request: Request, handle: F) -> Result<Response, anyhow::Error>
 where
     F: FnOnce(Request, Sender) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = crate::Result<()>> + Send + 'static,
 {
-    handle_sse(request, handle)
+    Ok(handle_sse(request, handle))
 }
 
 /// Performs a heartbeat on an SSE connection.  This allows the server to
@@ -81,6 +82,10 @@ where
 /// passed in should be cancellable, and will be cancelled if it does not
 /// resolve within the heartbeat timeout (1s by default).  This is mostly
 /// expected to be used in a loop.
+///
+/// # Errors
+/// This will return an error if the heartbeat fails to send.  This implies
+/// an issue with the underlying connection.
 ///
 /// # Examples
 /// ```rust,no_run
@@ -144,7 +149,7 @@ where
         // we need this for lifetime extension.  If we pass in `h` directly,
         // `h` would be bound to the lifetime of this function.
         #[allow(clippy::redundant_closure)]
-        handle_sse(request, move |r, s| h(r, s))
+        Ok(handle_sse(request, move |r, s| h(r, s)))
     }
 
     fn describe(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -154,7 +159,7 @@ where
     }
 }
 
-fn handle_sse<F, Fut>(request: Request, handle: F) -> crate::Result
+fn handle_sse<F, Fut>(request: Request, handle: F) -> crate::Response
 where
     F: FnOnce(Request, Sender) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = crate::Result<()>> + Send + 'static,
@@ -163,13 +168,15 @@ where
 
     let stream = tokio_util::io::ReaderStream::new(encoder.compat());
     let response = Response::empty_200()
-        .with_header("Cache-Control", "no-cache")?
-        .with_header("Content-Type", "text/event-stream")?
+        .with_header("Cache-Control", "no-cache")
+        .expect("Cache-Control is a valid header")
+        .with_header("Content-Type", "text/event-stream")
+        .expect("Content-Type is a valid header")
         .with_body(hyper::Body::wrap_stream(stream));
 
     tokio::task::spawn(async move {
         handle(request, sender).await.ok();
     });
 
-    Ok(response)
+    response
 }
