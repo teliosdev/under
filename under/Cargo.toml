@@ -42,7 +42,7 @@ pin-project = "1.0.12"
 # for now, it is optional, dependent on `from_form` as a feature, but it could
 # be added as a full dependency in the future.
 [dependencies.under_derive]
-version = "=0.2.3"
+version = "=0.2.4"
 optional = true
 path = "../under_derive"
 

@@ -1,7 +1,7 @@
 [package]
 name = "under_derive"
 description = "Macros for the under package."
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Jeremy Rodi <me@telios.dev>"]
 edition = "2021"
 license = "MIT"
