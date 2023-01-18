@@ -7,7 +7,7 @@
 //! To get started, just add under and tokio to your `Cargo.toml`:
 //!
 //! ```toml
-//! under = "0.3.4"
+//! under = "0.3.5"
 //! tokio = { version = "1.12.0", features = ["full"] } # or whatever the latest version is
 //! ```
 //!

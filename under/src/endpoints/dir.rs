@@ -20,11 +20,10 @@ impl DirEndpoint {
 impl Endpoint for DirEndpoint {
     async fn apply(self: Pin<&Self>, request: Request) -> Result<Response, Error> {
         let uri_path = request.uri().path();
-        let result = match resolve_path(request.fragment::<String, _>(1), &self.base) {
+        match resolve_path(request.fragment::<String, _>(1), &self.base) {
             Some(path) => resolve_file(path, uri_path).await,
             None => Ok(Response::empty_404()),
-        };
-        result
+        }
     }
 }
 

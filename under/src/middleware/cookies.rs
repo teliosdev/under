@@ -31,6 +31,31 @@ use std::pin::Pin;
 /// # Ok(())
 /// # }
 /// ```
+///
+/// ```rust
+/// # use under::*;
+/// # use cookie::Cookie;
+/// use under::middleware::{CookieMiddleware, CookieExt};
+///
+/// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+/// async fn handler(req: Request) -> Response {
+///     let cookie = req.cookie("bar").unwrap_or("no cookie");
+///     Response::text(format!("cookie: {}", cookie))
+/// }
+/// let mut http = under::http();
+/// http
+///     .with(CookieMiddleware::new())
+///     .at("/foo").get(handler);
+/// http.prepare();
+/// let mut response = http.handle(
+///     Request::get("/foo")?
+///         .with_header("cookie", "foo=bar; bar=baz")?
+/// ).await?;
+///
+/// assert_eq!(response.data(3_000).into_text().await?.to_string(), "cookie: baz");
+/// Ok(())
+/// }
+/// ```
 #[derive(Default, Clone)]
 pub struct CookieMiddleware {
     _v: (),
@@ -195,6 +220,7 @@ impl Middleware for CookieMiddleware {
             .get_all("Cookie")
             .into_iter()
             .filter_map(|h| h.to_str().ok())
+            .flat_map(|h| h.split(';'))
             .filter_map(|h| Cookie::parse_encoded(h).ok())
             .map(cookie::Cookie::into_owned)
             .fold(CookieJar::new(), |mut jar, cookie| {
