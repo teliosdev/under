@@ -502,6 +502,18 @@ impl From<Response> for http::Response<hyper::Body> {
     }
 }
 
+impl std::borrow::Borrow<http::Response<hyper::Body>> for Response {
+    fn borrow(&self) -> &http::Response<hyper::Body> {
+        &self.0
+    }
+}
+
+impl std::borrow::BorrowMut<http::Response<hyper::Body>> for Response {
+    fn borrow_mut(&mut self) -> &mut http::Response<hyper::Body> {
+        &mut self.0
+    }
+}
+
 /// Converts the current type into a [`crate::Response`].
 ///
 /// This assumes that the conversion into a response is fallible

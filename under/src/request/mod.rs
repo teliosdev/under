@@ -584,3 +584,21 @@ impl From<http::Request<hyper::Body>> for Request {
         Request(r)
     }
 }
+
+impl From<Request> for http::Request<hyper::Body> {
+    fn from(r: Request) -> Self {
+        r.0
+    }
+}
+
+impl std::borrow::Borrow<http::Request<hyper::Body>> for Request {
+    fn borrow(&self) -> &http::Request<hyper::Body> {
+        &self.0
+    }
+}
+
+impl std::borrow::BorrowMut<http::Request<hyper::Body>> for Request {
+    fn borrow_mut(&mut self) -> &mut http::Request<hyper::Body> {
+        &mut self.0
+    }
+}
