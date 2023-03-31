@@ -278,21 +278,133 @@ impl<'a> Path<'a> {
         /// # }
         /// ```
         pub fn get = http::Method::GET;
-        /// TODO.
+        /// Creates a POST endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").post(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::post("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn post = http::Method::POST;
-        /// TODO.
+        /// Creates a OPTIONS endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").options(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::options("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn options = http::Method::OPTIONS;
-        /// TODO.
+        /// Creates a PUT endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").put(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::put("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn put = http::Method::PUT;
-        /// TODO.
+        /// Creates a DELETE endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").delete(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::delete("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn delete = http::Method::DELETE;
-        /// TODO.
+        /// Creates a HEAD endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").head(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::head("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn head = http::Method::HEAD;
-        /// TODO.
+        /// Creates a TRACE endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").trace(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::trace("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn trace = http::Method::TRACE;
-        /// TODO.
+        /// Creates a CONNECT endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").connect(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::connect("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn connect = http::Method::CONNECT;
-        /// TODO.
+        /// Creates a PATCH endpoint at the current prefix.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # #[tokio::main] async fn main() -> Result<(), anyhow::Error> {
+        /// # use under::*;
+        /// let mut http = under::http();
+        /// let endpoint = under::endpoints::simple(under::Response::empty_204);
+        /// http.at("/user").patch(endpoint);
+        /// http.prepare();
+        /// let response = http.handle(under::Request::patch("/user")?).await?;
+        /// # assert_eq!(response.status(), http::StatusCode::NO_CONTENT);
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn patch = http::Method::PATCH;
     ];
 

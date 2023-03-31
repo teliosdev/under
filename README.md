@@ -60,7 +60,7 @@ http.at("/users/{id}")
 ```
 
 Or, if you want to capture all methods, you can use the `all` function
-todo so:
+to do so:
 
 ```rust
 http.at("/users/{id}").all(users::all);

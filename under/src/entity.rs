@@ -8,7 +8,7 @@ use crate::UnderError;
 #[async_trait::async_trait]
 pub trait HttpEntity: Sized {
     /// Returns a mutable reference to the body of the request.  This is used
-    /// for all other methods in `HasBody`.
+    /// for all other methods in [`HttpEntity`].
     ///
     /// # Examples
     /// ```rust
@@ -286,7 +286,8 @@ pub trait HttpEntity: Sized {
         DataStream::new(self.take_body(), limit)
     }
 
-    /// Returns a reference to the associated header field map.
+    /// Returns a reference to the associated header field map.  This is used
+    /// for all other methods in [`HttpEntity`].
     ///
     /// # Examples
     ///
@@ -296,7 +297,8 @@ pub trait HttpEntity: Sized {
     /// assert!(request.headers().is_empty());
     /// ```
     fn headers(&self) -> &http::HeaderMap<http::HeaderValue>;
-    /// Returns a mutable reference to the associated header field map.
+    /// Returns a mutable reference to the associated header field map.  This
+    /// is used for all other methods in [`HttpEntity`].
     ///
     /// # Examples
     ///

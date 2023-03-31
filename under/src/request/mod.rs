@@ -97,6 +97,16 @@ impl Request {
         /// assert_eq!(request.method(), http::Method::POST);
         /// ```
         pub fn post = http::Method::POST;
+        /// Creates an ew request initialized with the OPTIONS metohd and the
+        /// given URI.
+        ///
+        /// # Examples
+        /// ```rust
+        /// # use under::*;
+        /// let request = Request::options("https://example.com/a").unwrap();
+        /// assert_eq!(request.method(), http::Method::OPTIONS);
+        /// ```
+        pub fn options = http::Method::OPTIONS;
         /// Creates a new request initialized with the PUT method and the given
         /// URI.
         ///
