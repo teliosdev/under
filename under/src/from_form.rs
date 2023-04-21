@@ -37,7 +37,7 @@ use unicase::UniCase;
 ///   ("password", "hunter2"),
 /// ].into_iter()).unwrap();
 /// ```
-#[doc(cfg(feature = "from_form"))]
+#[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
 pub trait FromForm: Sized {
     /// Takes in an iterator of key-values, and returns a `Result<Self,
     /// FromFormError>`.  The iterator is guaranteed to be in the order that the
@@ -83,7 +83,7 @@ where
 /// `FromForm`, and returns a `Result<Self, Self::Error>`.  This is similar to
 /// `FromStr`, but allows for different parsings.  For example, `bool` parses
 /// from `1`, `true`, `on`, and `yes` (with other values defaulting to `false`).
-#[doc(cfg(feature = "from_form"))]
+#[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
 pub trait FromFormValue<'f>: Sized {
     /// The error type that can be returned if parsing fails.  This is normally
     /// encapsulated into a [`anyhow::Error`] before being turned into a variant
@@ -104,7 +104,7 @@ pub trait FromFormValue<'f>: Sized {
 /// any type `T` such that `T: Default + Extend<V> + IntoIterator<Item = V>`.
 /// This should cover all cases, and you should not need to implement (or use)
 /// this.
-#[doc(cfg(feature = "from_form"))]
+#[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
 pub trait FromFormMultiple<'f>: Sized {
     /// The item type that is being collected into `Self`.
     type Item;
@@ -204,7 +204,7 @@ forward_to_parse! {
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-#[doc(cfg(feature = "from_form"))]
+#[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
 /// The error type for parsing a form.
 ///
 /// This is returned by [`FromForm::from_form`].  You should not need to

@@ -126,7 +126,7 @@ impl DataStream {
     /// # }
     /// ```
     #[cfg(feature = "json")]
-    #[doc(cfg(feature = "json"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "json")))]
     pub async fn into_json<T: serde::de::DeserializeOwned>(self) -> Result<T, UnderError> {
         let bytes = self.into_bytes().await?;
         serde_json::from_slice(&bytes[..]).map_err(crate::UnderError::JsonDeserialization)
@@ -148,7 +148,7 @@ impl DataStream {
     /// # Ok(())
     /// # }
     #[cfg(feature = "cbor")]
-    #[doc(cfg(feature = "cbor"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "cbor")))]
     pub async fn into_cbor<T: serde::de::DeserializeOwned>(self) -> Result<T, UnderError> {
         let bytes = self.into_bytes().await?;
         ciborium::de::from_reader(&bytes[..])
@@ -172,7 +172,7 @@ impl DataStream {
     /// # }
     /// ```
     #[cfg(feature = "msgpack")]
-    #[doc(cfg(feature = "msgpack"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "msgpack")))]
     pub async fn into_msgpack<T: serde::de::DeserializeOwned>(self) -> Result<T, UnderError> {
         let bytes = self.into_bytes().await?;
         rmp_serde::from_slice(&bytes[..]).map_err(crate::UnderError::MsgpackDeserialization)
@@ -203,7 +203,7 @@ impl DataStream {
     /// # }
     /// ```
     #[cfg(feature = "from_form")]
-    #[doc(cfg(feature = "from_form"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
     pub async fn into_form<T: crate::from_form::FromForm>(self) -> Result<T, UnderError> {
         let bytes = self.into_bytes().await?;
         let items = form_urlencoded::parse(&bytes);

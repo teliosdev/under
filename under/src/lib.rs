@@ -33,7 +33,7 @@
 )]
 #![deny(clippy::correctness, unused_must_use)]
 #![allow(clippy::module_name_repetitions)]
-#![feature(doc_cfg)]
+#![cfg_attr(nightly, feature(doc_cfg))]
 
 #[macro_use]
 extern crate async_trait;
@@ -52,15 +52,15 @@ mod request;
 mod response;
 mod router;
 #[cfg(feature = "sse")]
-#[doc(cfg(feature = "sse"))]
+#[cfg_attr(nightly, doc(cfg(feature = "sse")))]
 pub mod sse;
 
 #[cfg(feature = "cookie")]
-#[doc(cfg(feature = "cookie"))]
+#[cfg_attr(nightly, doc(cfg(feature = "cookie")))]
 pub use cookie::{Cookie, CookieBuilder, CookieJar};
 
 #[cfg(feature = "from_form")]
-#[doc(cfg(feature = "from_form"))]
+#[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
 pub use from_form::{FromForm, FromFormError, FromFormMultiple, FromFormValue};
 
 #[cfg(feature = "under_derive")]

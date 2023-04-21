@@ -101,7 +101,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "json")]
-    #[doc(cfg(feature = "json"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "json")))]
     fn set_json<V: serde::Serialize>(
         &mut self,
         new_body: &V,
@@ -129,7 +129,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "json")]
-    #[doc(cfg(feature = "json"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "json")))]
     fn with_json<V: serde::Serialize>(self, new_body: &V) -> Result<Self, serde_json::Error> {
         let value = serde_json::to_string(new_body)?;
         Ok(self.with_body(value))
@@ -155,7 +155,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "cbor")]
-    #[doc(cfg(feature = "cbor"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "cbor")))]
     fn set_cbor<V: serde::Serialize>(
         &mut self,
         new_body: &V,
@@ -185,7 +185,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "cbor")]
-    #[doc(cfg(feature = "cbor"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "cbor")))]
     fn with_cbor<V: serde::Serialize>(self, new_body: &V) -> Result<Self, anyhow::Error> {
         let mut out = vec![];
         ciborium::ser::into_writer(new_body, &mut out)?;
@@ -213,7 +213,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "msgpack")]
-    #[doc(cfg(feature = "msgpack"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "msgpack")))]
     fn set_msgpack<V: serde::Serialize>(
         &mut self,
         new_body: &V,
@@ -244,7 +244,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "msgpack")]
-    #[doc(cfg(feature = "msgpack"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "msgpack")))]
     fn with_msgpack<V: serde::Serialize>(
         self,
         new_body: &V,
@@ -466,7 +466,7 @@ pub trait HttpEntity: Sized {
     /// # }
     /// ```
     #[cfg(feature = "serde")]
-    #[doc(cfg(feature = "serde"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "serde")))]
     async fn as_sniff<T: serde::de::DeserializeOwned>(
         &mut self,
         limit: u64,
@@ -486,10 +486,7 @@ pub trait HttpEntity: Sized {
     /// This functions similarly to [`HttpEntity::as_sniff`], but it also can
     /// parse `x-www-form-urlencoded` content types as well.
     #[cfg(all(feature = "serde", feature = "from_form"))]
-    #[cfg_attr(
-        feature = "nightly",
-        doc(cfg(all(feature = "serde", feature = "from_form")))
-    )]
+    #[cfg_attr(nightly, doc(cfg(all(feature = "serde", feature = "from_form"))))]
     async fn as_sniff_form<T: serde::de::DeserializeOwned + crate::FromForm>(
         &mut self,
         limit: u64,
@@ -506,7 +503,7 @@ pub trait HttpEntity: Sized {
 }
 
 #[cfg(feature = "serde")]
-#[doc(cfg(feature = "serde"))]
+#[cfg_attr(nightly, doc(cfg(feature = "serde")))]
 async fn sniff_serde<E: HttpEntity, T: serde::de::DeserializeOwned>(
     entity: &mut E,
     limit: u64,

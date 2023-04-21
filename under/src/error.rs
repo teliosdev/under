@@ -16,19 +16,19 @@ pub enum UnderError {
     #[error("could not read the body of a request or response")]
     ReadBody(#[source] std::io::Error),
     #[cfg(feature = "json")]
-    #[doc(cfg(feature = "json"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "json")))]
     /// Generated when attempting to deserialize the body of a request or
     /// response from JSON.
     #[error("could not deserialize the body of a request or response from JSON")]
     JsonDeserialization(#[source] serde_json::Error),
     #[cfg(feature = "cbor")]
-    #[doc(cfg(feature = "cbor"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "cbor")))]
     /// Generated when attempting to deserialize the body of a request or
     /// response from CBOR.
     #[error("could not deserialize the body of a request or response from CBOR")]
     CborDeserialization(#[source] anyhow::Error),
     #[cfg(feature = "msgpack")]
-    #[doc(cfg(feature = "msgpack"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "msgpack")))]
     /// Generated when attempting to deserialize the body of a request or
     /// response from MessagePack.
     #[error("could not deserialize the body of a request or response from MessagePack")]
@@ -38,7 +38,7 @@ pub enum UnderError {
     #[error("could not deserialize the body of a request or response from utf-8")]
     TextDeserialization(#[source] std::string::FromUtf8Error),
     #[cfg(feature = "from_form")]
-    #[doc(cfg(feature = "from_form"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "from_form")))]
     /// Generated when attempting to deserialize the body of a request or
     /// response from x-www-form-urlencoded.
     #[error("could not deserialize the body of a request or response from urlencoded")]

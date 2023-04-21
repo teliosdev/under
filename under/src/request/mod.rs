@@ -268,7 +268,7 @@ impl Request {
     /// assert_eq!(user.id, 1);
     /// ```
     #[cfg(feature = "serde")]
-    #[doc(cfg(feature = "serde"))]
+    #[cfg_attr(nightly, doc(cfg(feature = "serde")))]
     pub fn query<'q, S: serde::Deserialize<'q>>(&'q self) -> Option<S> {
         self.uri()
             .query()
